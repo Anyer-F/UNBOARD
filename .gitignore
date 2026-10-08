@@ -1,0 +1,25 @@
+# Compiled Java classes and Maven output
+**/target/
+*.class
+
+# File uploads and temporary storage
+uploads/
+**/uploads/
+*.tmp
+*.log
+
+# IDE and Editor configurations
+.idea/
+*.iml
+.vscode/
+*.classpath
+*.project
+*.settings/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Environment and local overrides
+*.env
+.env.local

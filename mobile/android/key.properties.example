@@ -1,0 +1,8 @@
+# Plantilla para configuración de firma en producción (Release)
+# Copia este archivo como 'key.properties' en esta misma carpeta (android/key.properties)
+# NUNCA subas 'key.properties' ni tu archivo .jks al control de versiones (Git).
+
+storePassword=tu_contraseña_keystore
+keyPassword=tu_contraseña_alias
+keyAlias=unbound_key
+storeFile=../unbound-release-key.jks

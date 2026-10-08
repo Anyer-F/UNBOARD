@@ -1,0 +1,14 @@
+package com.example.backend.entity;
+
+public enum TipoNotificacion {
+    NUEVA_ACTIVIDAD,
+    ENTREGA_ACTIVIDAD,
+    ACTIVIDAD_EN_REVISION,
+    ACTIVIDAD_APROBADA,
+    CORRECCION_SOLICITADA,
+    ACTIVIDAD_VENCIDA,
+    DOCUMENTO_SUBIDO,
+    RECORDATORIO,
+    ACTIVIDAD,
+    GENERAL
+}
