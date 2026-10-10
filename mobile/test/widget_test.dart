@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:unbound_mobile/main.dart';
@@ -16,6 +17,10 @@ void main() {
       ),
     );
 
-    expect(find.text('Expedientes Digitales'), findsOneWidget);
+    expect(find.text('UNBOUND DMS'), findsOneWidget);
+
+    // Desmonta la app y deja vencer el temporizador del splash
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
   });
 }

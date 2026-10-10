@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../shared/models/actividad_comunidad_resumen.dart';
 import '../shared/models/apadrinado.dart';
 import '../shared/models/comunidad.dart';
 import '../shared/models/expediente.dart';
@@ -18,13 +19,63 @@ class ExpedienteService {
     return Expediente.fromJson(response);
   }
 
-  Future<Uint8List> descargarPdf(int expedienteId) async {
-    return await _api.getBytes('/api/expedientes/$expedienteId/exportar-pdf');
+  /// PDF consolidado del expediente. Con [desde]/[hasta] solo incluye
+  /// lo registrado en ese período.
+  Future<Uint8List> descargarPdf(int expedienteId,
+      {DateTime? desde, DateTime? hasta}) async {
+    return await _api.getBytes(
+        '/api/expedientes/$expedienteId/exportar-pdf${_periodo(desde, hasta)}');
   }
 
-  Future<Uint8List> descargarZip(int expedienteId) async {
-    return await _api.getBytes('/api/expedientes/$expedienteId/exportar-zip');
+  /// ZIP organizado del expediente. Con [desde]/[hasta] solo incluye
+  /// los documentos subidos en ese período.
+  Future<Uint8List> descargarZip(int expedienteId,
+      {DateTime? desde, DateTime? hasta}) async {
+    return await _api.getBytes(
+        '/api/expedientes/$expedienteId/exportar-zip${_periodo(desde, hasta)}');
   }
+
+  /// Actividades de una comunidad agrupadas por operación, para
+  /// generar el expediente de actividad.
+  Future<List<ActividadComunidadResumen>> listarActividadesDeComunidad(
+      int comunidadId) async {
+    final response =
+        await _api.get('/api/expedientes/actividades/comunidad/$comunidadId');
+    if (response is List) {
+      return response
+          .map((a) => ActividadComunidadResumen.fromJson(a))
+          .toList();
+    }
+    return [];
+  }
+
+  /// Expediente de actividad (PDF o ZIP) de los apadrinados de una
+  /// comunidad. Con [soloAprobadas] incluye solo las entregas aprobadas.
+  Future<Uint8List> descargarExpedienteActividad(
+    int actividadId, {
+    required int comunidadId,
+    required bool soloAprobadas,
+    bool zip = false,
+  }) async {
+    final formato = zip ? 'zip' : 'pdf';
+    return await _api.getBytes(
+      '/api/expedientes/actividad/$actividadId/expediente-$formato'
+      '?comunidadId=$comunidadId&soloAprobadas=$soloAprobadas',
+    );
+  }
+
+  String _periodo(DateTime? desde, DateTime? hasta) {
+    final params = <String>[
+      if (desde != null) 'desde=${_isoFecha(desde)}',
+      if (hasta != null) 'hasta=${_isoFecha(hasta)}',
+    ];
+    return params.isEmpty ? '' : '?${params.join('&')}';
+  }
+
+  String _isoFecha(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 
   Future<List<Apadrinado>> listarApadrinadosPorCoordinador(int coordinadorId) async {
     final response = await _api.get('/api/apadrinados/coordinador/$coordinadorId');

@@ -19,6 +19,13 @@ public interface ActividadRepository extends JpaRepository<Actividad, Long> {
     List<Actividad> findByCoordinadorIdAndEstadoIn(Long coordinadorId, List<EstadoActividad> estados);
     List<Actividad> findByEstadoIn(List<EstadoActividad> estados);
 
+    /**
+     * Actividades asignadas a los apadrinados de una comunidad. Se
+     * agrupan por operación (creación masiva = mismo título y fecha de
+     * creación) para generar los expedientes de actividad.
+     */
+    List<Actividad> findByApadrinadoComunidadId(Long comunidadId);
+
     // Métodos de paginación
     Page<Actividad> findByApadrinadoId(Long apadrinadoId, Pageable pageable);
     Page<Actividad> findByApadrinadoIdAndEstado(Long apadrinadoId, EstadoActividad estado, Pageable pageable);

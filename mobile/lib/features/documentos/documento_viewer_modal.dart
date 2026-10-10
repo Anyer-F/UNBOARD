@@ -1,11 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../shared/models/documento.dart';
-import '../../core/network/api_client.dart';
+import '../../core/utils/file_export.dart';
 import '../../services/documento_service.dart';
 import '../../../core/theme/app_theme.dart';
 
@@ -28,7 +25,6 @@ class DocumentoViewerModal extends StatefulWidget {
 
 class _DocumentoViewerModalState extends State<DocumentoViewerModal> {
   final _docService = DocumentoService();
-  final _apiService = ApiService();
 
   Uint8List? _bytes;
   String? _textoCarta;
@@ -71,48 +67,29 @@ class _DocumentoViewerModalState extends State<DocumentoViewerModal> {
     }
   }
 
-  Future<void> _abrirEnNavegadorOVisor() async {
-    final urlStr = '${_apiService.baseUrl}/api/documentos/${widget.documento.id}/ver';
-    final uri = Uri.parse(urlStr);
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        await launchUrl(uri);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo abrir el visor externo: $e')),
-        );
-      }
-    }
-  }
+  /// Abre el documento con la aplicación del sistema (o lo descarga en
+  /// web). Usa los bytes ya descargados con el token de sesión: abrir la
+  /// URL directamente en un navegador externo fallaría sin autenticación.
+  Future<void> _abrirEnNavegadorOVisor() => _guardarEnDispositivo();
 
   Future<void> _guardarEnDispositivo() async {
-    if (_bytes == null) return;
     setState(() => _isSaving = true);
 
     try {
-      Directory? dir;
-      if (Platform.isAndroid) {
-        dir = await getExternalStorageDirectory();
-      } else {
-        dir = await getApplicationDocumentsDirectory();
-      }
-
-      dir ??= await getApplicationDocumentsDirectory();
-
-      final cleanName = widget.documento.nombreOriginal.replaceAll(RegExp(r'[^\w\.\-]'), '_');
-      final filePath = '${dir.path}/$cleanName';
-      final file = File(filePath);
-      await file.writeAsBytes(_bytes!);
+      final bytes =
+          _bytes ?? await _docService.descargarDocumento(widget.documento.id);
+      final cleanName = widget.documento.nombreOriginal
+          .replaceAll(RegExp(r'[^\w\.\-]'), '_');
+      final mensaje = await guardarYAbrirArchivo(
+        bytes,
+        nombre: cleanName,
+        mimeType: widget.documento.tipoMime ?? 'application/octet-stream',
+      );
 
       if (mounted) {
-        setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Archivo guardado en: $filePath'),
+            content: Text(mensaje),
             backgroundColor: AppColors.sageGreen,
             duration: const Duration(seconds: 4),
           ),
@@ -120,14 +97,15 @@ class _DocumentoViewerModalState extends State<DocumentoViewerModal> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error al guardar archivo: $e'),
+            content: Text('Error al guardar archivo: ${e.toString().replaceAll('Exception: ', '')}'),
             backgroundColor: AppColors.coralRed,
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 

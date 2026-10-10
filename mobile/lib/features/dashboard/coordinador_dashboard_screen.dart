@@ -17,6 +17,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/expediente_service.dart';
 import '../actividades/actividad_detalle_screen.dart';
 import '../actividades/crear_actividad_screen.dart';
+import '../expediente/expediente_actividad_screen.dart';
 import '../expediente/expediente_detalle_screen.dart';
 
 /// Dashboard del Coordinador (especificación §22.1).
@@ -24,7 +25,10 @@ import '../expediente/expediente_detalle_screen.dart';
 /// Resumen de apadrinados, actividades por revisar y
 /// accesos directos. Tarjetas compactas.
 class CoordinadorHomeContent extends StatefulWidget {
-  const CoordinadorHomeContent({super.key});
+  /// Cambia a la pestaña "Comunidades" del shell.
+  final VoidCallback? onAbrirComunidades;
+
+  const CoordinadorHomeContent({super.key, this.onAbrirComunidades});
 
   @override
   State<CoordinadorHomeContent> createState() =>
@@ -81,11 +85,6 @@ class _CoordinadorHomeContentState extends State<CoordinadorHomeContent> {
     }
   }
 
-  int get _porRevisar => _actividades
-      .where((a) =>
-          a.estado == 'ENTREGADA' || a.estado == 'EN_REVISION')
-      .length;
-
   @override
   Widget build(BuildContext context) {
     final user = Provider.of<AuthService>(context).currentUser;
@@ -102,201 +101,222 @@ class _CoordinadorHomeContentState extends State<CoordinadorHomeContent> {
       );
     }
 
-    return RefreshIndicator(
+    return CoordinadorHomeView(
+      nombre: user?.nombre ?? 'Coordinador',
+      apadrinados: _apadrinados,
+      actividades: _actividades,
       onRefresh: _cargarDatos,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: Responsive.screenPadding(context).copyWith(
-              top: AppSpacing.lg,
-              bottom: AppSpacing.xxl,
-            ),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: Responsive.maxContentWidth(context),
+      onNuevaActividad: () async {
+        final creada = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const CrearActividadScreen()),
+        );
+        if (creada == true) _cargarDatos();
+      },
+      onAbrirComunidades: widget.onAbrirComunidades,
+      onExpedientesActividad: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ExpedienteActividadScreen()),
+        );
+      },
+      onAbrirApadrinado: (apad) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ExpedienteDetalleScreen(apadrinadoId: apad.id),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ProfileHeader(
-                nombre: '¡Hola, ${user?.nombre ?? "Coordinador"}!',
-                correo: 'Coordinador de Proyecto • Huehuetenango',
-              ),
-              const SizedBox(height: AppSpacing.xl),
+        );
+      },
+      onAbrirActividad: (act) async {
+        final actualizado = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => ActividadDetalleScreen(actividad: act)),
+        );
+        if (actualizado == true) _cargarDatos();
+      },
+    );
+  }
+}
 
-              // Resumen
-              const SectionHeader(
-                title: 'Mi resumen',
-                subtitle: 'Visión general de tu gestión',
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Wrap(
-                spacing: AppSpacing.md,
-                runSpacing: AppSpacing.md,
-                children: [
-                  _MetricTile(
-                    context: context,
-                    label: 'Apadrinados',
-                    value: '${_apadrinados.length}',
-                    icon: Icons.people_outlined,
-                    color: AppColors.tealCyan,
-                  ),
-                  _MetricTile(
-                    context: context,
-                    label: 'Por revisar',
-                    value: '$_porRevisar',
-                    icon: Icons.rate_review_outlined,
-                    color: AppColors.mustardGold,
-                  ),
-                  _MetricTile(
-                    context: context,
-                    label: 'Actividades',
-                    value: '${_actividades.length}',
-                    icon: Icons.assignment_outlined,
-                    color: AppColors.sageGreen,
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.xl),
+/// Vista del dashboard del Coordinador (sin estado ni red).
+///
+/// Una columna en teléfonos; en tablet/web el resumen y los accesos
+/// quedan a la izquierda y los listados a la derecha.
+class CoordinadorHomeView extends StatelessWidget {
+  final String nombre;
+  final List<Apadrinado> apadrinados;
+  final List<Actividad> actividades;
+  final Future<void> Function() onRefresh;
+  final VoidCallback? onNuevaActividad;
+  final VoidCallback? onAbrirComunidades;
+  final VoidCallback? onExpedientesActividad;
+  final void Function(Apadrinado)? onAbrirApadrinado;
+  final void Function(Actividad)? onAbrirActividad;
 
-              // Acceso rápido
-              Responsive.isLarge(context)
-                  ? Row(
-                      children: [
-                        Expanded(
-                          child: SecondaryButton(
-                            label: 'Nueva actividad',
-                            icon: Icons.add,
-                            onPressed: () async {
-                              final creada = await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const CrearActividadScreen(),
-                                ),
-                              );
-                              if (creada == true) _cargarDatos();
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(
-                          child: SecondaryButton(
-                            label: 'Mis comunidades',
-                            icon: Icons.location_city_outlined,
-                            onPressed: () {
-                              Navigator.pushNamed(
-                                  context, '/coordinador/comunidades');
-                            },
-                          ),
-                        ),
-                      ],
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SecondaryButton(
-                          label: 'Nueva actividad',
-                          icon: Icons.add,
-                          onPressed: () async {
-                            final creada = await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const CrearActividadScreen(),
-                              ),
-                            );
-                            if (creada == true) _cargarDatos();
-                          },
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        SecondaryButton(
-                          label: 'Mis comunidades',
-                          icon: Icons.location_city_outlined,
-                          onPressed: () {
-                            Navigator.pushNamed(
-                                context, '/coordinador/comunidades');
-                          },
-                        ),
-                      ],
-                    ),
-              const SizedBox(height: AppSpacing.xl),
+  const CoordinadorHomeView({
+    super.key,
+    required this.nombre,
+    required this.apadrinados,
+    required this.actividades,
+    required this.onRefresh,
+    this.onNuevaActividad,
+    this.onAbrirComunidades,
+    this.onExpedientesActividad,
+    this.onAbrirApadrinado,
+    this.onAbrirActividad,
+  });
 
-              // Apadrinados recientes
-              const SectionHeader(
-                title: 'Apadrinados',
-                subtitle: 'Acceso directo a los expedientes',
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              if (_apadrinados.isEmpty)
-                const EmptyState(
-                  icon: Icons.people_outlined,
-                  title: 'Sin apadrinados',
-                  description:
-                      'Los apadrinados asignados aparecerán aquí',
-                )
-              else
-                ..._apadrinados.take(3).map(
-                      (apad) => PersonCard(
-                        nombre: apad.nombre ?? 'Apadrinado',
-                        subtitle: apad.comunidadNombre ?? 'Sin asignar',
-                        detail: apad.correo,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ExpedienteDetalleScreen(
-                                apadrinadoId: apad.id,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-              const SizedBox(height: AppSpacing.xl),
+  int get _porRevisar => actividades
+      .where((a) => a.estado == 'ENTREGADA' || a.estado == 'EN_REVISION')
+      .length;
 
-              // Actividades recientes
-              const SectionHeader(
-                title: 'Actividades recientes',
-                subtitle: 'Últimas actividades creadas',
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              if (_actividades.isEmpty)
-                const EmptyState(
-                  icon: Icons.assignment_outlined,
-                  title: 'No hay actividades',
-                  description: 'Crea tu primera actividad para comenzar',
-                )
-              else
-                ..._actividades.take(3).map(
-                      (act) => ActivityCard(
-                        actividad: act,
-                        onTap: () async {
-                          final actualizado = await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  ActividadDetalleScreen(actividad: act),
-                            ),
-                          );
-                          if (actualizado == true) _cargarDatos();
-                        },
-                      ),
-                    ),
-            ],
-          ),
-        ),
+  @override
+  Widget build(BuildContext context) {
+    final accesos = <Widget>[
+      SecondaryButton(
+        label: 'Nueva actividad',
+        icon: Icons.add,
+        onPressed: onNuevaActividad,
       ),
+      if (onAbrirComunidades != null)
+        SecondaryButton(
+          label: 'Mis comunidades',
+          icon: Icons.location_city_outlined,
+          onPressed: onAbrirComunidades,
+        ),
+      SecondaryButton(
+        label: 'Expedientes por actividad',
+        icon: Icons.folder_copy_outlined,
+        onPressed: onExpedientesActividad,
+      ),
+    ];
+
+    return DashboardLayout(
+      onRefresh: onRefresh,
+      principal: [
+        ProfileHeader(
+          nombre: '¡Hola, $nombre!',
+          correo: 'Coordinador de Proyecto • Huehuetenango',
+        ),
+        const SizedBox(height: AppSpacing.xl),
+
+        // Resumen
+        const SectionHeader(
+          title: 'Mi resumen',
+          subtitle: 'Visión general de tu gestión',
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        MetricRow(
+          children: [
+            _MetricTile(
+              label: 'Apadrinados',
+              value: '${apadrinados.length}',
+              icon: Icons.people_outlined,
+              color: AppColors.tealCyan,
+            ),
+            _MetricTile(
+              label: 'Por revisar',
+              value: '$_porRevisar',
+              icon: Icons.rate_review_outlined,
+              color: AppColors.mustardGold,
+            ),
+            _MetricTile(
+              label: 'Actividades',
+              value: '${actividades.length}',
+              icon: Icons.assignment_outlined,
+              color: AppColors.sageGreen,
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xl),
+
+        // Acceso rápido: un botón por fila en teléfono, en fila en pantallas anchas
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final enFila = constraints.maxWidth >= 560;
+            if (!enFila) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < accesos.length; i++) ...[
+                    if (i > 0) const SizedBox(height: AppSpacing.md),
+                    accesos[i],
+                  ],
+                ],
+              );
+            }
+            return Row(
+              children: [
+                for (var i = 0; i < accesos.length; i++) ...[
+                  if (i > 0) const SizedBox(width: AppSpacing.md),
+                  Expanded(child: accesos[i]),
+                ],
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: AppSpacing.xl),
+      ],
+      secundario: [
+        // Apadrinados recientes
+        const SectionHeader(
+          title: 'Apadrinados',
+          subtitle: 'Acceso directo a los expedientes',
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        if (apadrinados.isEmpty)
+          const EmptyState(
+            icon: Icons.people_outlined,
+            title: 'Sin apadrinados',
+            description: 'Los apadrinados asignados aparecerán aquí',
+          )
+        else
+          ...apadrinados.take(3).map(
+                (apad) => PersonCard(
+                  nombre: apad.nombre ?? 'Apadrinado',
+                  subtitle: apad.comunidadNombre ?? 'Sin asignar',
+                  detail: apad.correo,
+                  onTap: onAbrirApadrinado == null
+                      ? null
+                      : () => onAbrirApadrinado!(apad),
+                ),
+              ),
+        const SizedBox(height: AppSpacing.xl),
+
+        // Actividades recientes
+        const SectionHeader(
+          title: 'Actividades recientes',
+          subtitle: 'Últimas actividades creadas',
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        if (actividades.isEmpty)
+          const EmptyState(
+            icon: Icons.assignment_outlined,
+            title: 'No hay actividades',
+            description: 'Crea tu primera actividad para comenzar',
+          )
+        else
+          ...actividades.take(3).map(
+                (act) => ActivityCard(
+                  actividad: act,
+                  onTap: onAbrirActividad == null
+                      ? null
+                      : () => onAbrirActividad!(act),
+                ),
+              ),
+      ],
     );
   }
 }
 
 class _MetricTile extends StatelessWidget {
-  final BuildContext context;
   final String label;
   final String value;
   final IconData icon;
   final Color color;
 
   const _MetricTile({
-    required this.context,
     required this.label,
     required this.value,
     required this.icon,
@@ -305,25 +325,22 @@ class _MetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ancho = Responsive.isLarge(context)
-        ? (Responsive.maxContentWidth(context) - 32) / 3
-        : (Responsive.width(context) - 48) / 2;
-
-    return SizedBox(
-      width: ancho,
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        decoration: BoxDecoration(
-          color: color.withAlpha(13),
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: color.withAlpha(26)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: color.withAlpha(13),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: color.withAlpha(26)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: AppSpacing.sm),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
               value,
               style: TextStyle(
                 color: color,
@@ -331,16 +348,18 @@ class _MetricTile extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            Text(
-              label,
-              style: TextStyle(
-                color: color.withAlpha(204),
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-              ),
+          ),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color.withAlpha(204),
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

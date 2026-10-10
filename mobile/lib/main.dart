@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
 import 'core/theme/app_theme.dart';
@@ -15,6 +16,9 @@ import 'services/push_notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Datos de fechas en español (AppDateUtils usa el locale "es")
+  await initializeDateFormatting('es');
 
   // Inicialización del cliente HTTP (carga la URL base
   // y el token guardados localmente).

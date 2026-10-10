@@ -61,7 +61,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Indica la URL del servidor Spring Boot. Si usas un dispositivo móvil físico en la misma red Wi-Fi, usa la IP de tu PC (ej: http://192.168.1.15:8080).',
+              'Indica la URL del servidor Spring Boot. Si usas un dispositivo móvil físico en la misma red Wi-Fi, usa la IP de tu PC (ej: http://192.168.1.15:8081).',
               style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 16),
@@ -69,7 +69,7 @@ class _ConfigScreenState extends State<ConfigScreen> {
               controller: _urlController,
               decoration: const InputDecoration(
                 labelText: 'URL del Backend',
-                hintText: 'http://10.0.2.2:8080',
+                hintText: 'http://10.0.2.2:8081',
                 prefixIcon: Icon(Icons.dns, color: AppColors.darkNavy),
               ),
             ),
@@ -83,12 +83,12 @@ class _ConfigScreenState extends State<ConfigScreen> {
               spacing: 8,
               children: [
                 ActionChip(
-                  label: const Text('Localhost (8080)'),
-                  onPressed: () => _urlController.text = 'http://localhost:8080',
+                  label: const Text('Localhost (8081)'),
+                  onPressed: () => _urlController.text = 'http://localhost:8081',
                 ),
                 ActionChip(
-                  label: const Text('Emulador Android (10.0.2.2:8080)'),
-                  onPressed: () => _urlController.text = 'http://10.0.2.2:8080',
+                  label: const Text('Emulador Android (10.0.2.2:8081)'),
+                  onPressed: () => _urlController.text = 'http://10.0.2.2:8081',
                 ),
               ],
             ),

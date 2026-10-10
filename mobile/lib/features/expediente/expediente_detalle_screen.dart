@@ -1,12 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../core/utils/file_export.dart';
 import '../../shared/models/documento.dart';
 import '../../shared/models/expediente.dart';
 import '../../shared/models/historial_actividad.dart';
 import '../../services/actividad_service.dart';
-import '../../core/network/api_client.dart';
 import '../../services/expediente_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../actividades/revisar_entrega_screen.dart';
@@ -29,7 +26,6 @@ class ExpedienteDetalleScreen extends StatefulWidget {
 class _ExpedienteDetalleScreenState extends State<ExpedienteDetalleScreen> with SingleTickerProviderStateMixin {
   final _expedienteService = ExpedienteService();
   final _actividadService = ActividadService();
-  final _apiService = ApiService();
 
   late TabController _tabController;
 
@@ -39,6 +35,7 @@ class _ExpedienteDetalleScreenState extends State<ExpedienteDetalleScreen> with 
   String? _error;
   bool _isDownloadingPdf = false;
   bool _isDownloadingZip = false;
+  DateTimeRange? _periodo;
 
   String _filtroTipo = 'TODOS';
   final _searchDocController = TextEditingController();
@@ -95,95 +92,70 @@ class _ExpedienteDetalleScreenState extends State<ExpedienteDetalleScreen> with 
     }
   }
 
-  Future<void> _exportarPdf() async {
-    if (_expediente == null) return;
-    setState(() => _isDownloadingPdf = true);
-
-    try {
-      final bytes = await _expedienteService.descargarPdf(_expediente!.id);
-
-      Directory? dir;
-      if (Platform.isAndroid) {
-        dir = await getExternalStorageDirectory();
-      } else {
-        dir = await getApplicationDocumentsDirectory();
-      }
-      dir ??= await getApplicationDocumentsDirectory();
-
-      final filePath = '${dir.path}/Expediente_${_expediente!.id}.pdf';
-      final file = File(filePath);
-      await file.writeAsBytes(bytes);
-
-      if (!mounted) return;
-      setState(() => _isDownloadingPdf = false);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Reporte PDF guardado (${(bytes.length / 1024).toStringAsFixed(1)} KB)'),
-          backgroundColor: AppColors.sageGreen,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: 'Ver en Línea',
-            textColor: Colors.white,
-            onPressed: () async {
-              final url = Uri.parse('${_apiService.baseUrl}/api/expedientes/${_expediente!.id}/ver-pdf');
-              if (await canLaunchUrl(url)) {
-                await launchUrl(url, mode: LaunchMode.externalApplication);
-              }
-            },
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isDownloadingPdf = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al descargar PDF: $e'),
-          backgroundColor: AppColors.coralRed,
-        ),
-      );
-    }
+  /// Elige el período del expediente a exportar. Sin período se
+  /// exporta el expediente completo.
+  Future<void> _elegirPeriodo() async {
+    final ahora = DateTime.now();
+    final rango = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(ahora.year, ahora.month, ahora.day),
+      initialDateRange: _periodo,
+      helpText: 'Período del expediente',
+      saveText: 'Aplicar',
+      cancelText: 'Cancelar',
+      fieldStartLabelText: 'Desde',
+      fieldEndLabelText: 'Hasta',
+    );
+    if (rango != null && mounted) setState(() => _periodo = rango);
   }
 
-  Future<void> _exportarZip() async {
+  String get _textoPeriodo {
+    if (_periodo == null) return 'Todo el expediente';
+    String f(DateTime d) =>
+        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+    return '${f(_periodo!.start)} - ${f(_periodo!.end)}';
+  }
+
+  Future<void> _exportar({required bool zip}) async {
     if (_expediente == null) return;
-    setState(() => _isDownloadingZip = true);
+    setState(() => zip ? _isDownloadingZip = true : _isDownloadingPdf = true);
 
     try {
-      final bytes = await _expedienteService.descargarZip(_expediente!.id);
+      final id = _expediente!.id;
+      final bytes = zip
+          ? await _expedienteService.descargarZip(id,
+              desde: _periodo?.start, hasta: _periodo?.end)
+          : await _expedienteService.descargarPdf(id,
+              desde: _periodo?.start, hasta: _periodo?.end);
 
-      Directory? dir;
-      if (Platform.isAndroid) {
-        dir = await getExternalStorageDirectory();
-      } else {
-        dir = await getApplicationDocumentsDirectory();
-      }
-      dir ??= await getApplicationDocumentsDirectory();
-
-      final filePath = '${dir.path}/Expediente_Organizado_${_expediente!.id}.zip';
-      final file = File(filePath);
-      await file.writeAsBytes(bytes);
+      final mensaje = await guardarYAbrirArchivo(
+        bytes,
+        nombre: zip ? 'Expediente_Organizado_$id.zip' : 'Expediente_$id.pdf',
+        mimeType: zip ? 'application/zip' : 'application/pdf',
+      );
 
       if (!mounted) return;
-      setState(() => _isDownloadingZip = false);
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Expediente ZIP guardado en: $filePath'),
-          backgroundColor: AppColors.tealCyan,
-          duration: const Duration(seconds: 4),
+          content: Text(mensaje),
+          backgroundColor: zip ? AppColors.tealCyan : AppColors.sageGreen,
+          duration: const Duration(seconds: 5),
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isDownloadingZip = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error al descargar ZIP: $e'),
+          content: Text(
+              'Error al generar el ${zip ? 'ZIP' : 'PDF'}: ${e.toString().replaceAll('Exception: ', '')}'),
           backgroundColor: AppColors.coralRed,
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => zip ? _isDownloadingZip = false : _isDownloadingPdf = false);
+      }
     }
   }
 
@@ -299,6 +271,52 @@ class _ExpedienteDetalleScreenState extends State<ExpedienteDetalleScreen> with 
                               ),
                               const SizedBox(height: 16),
 
+                              // Período del expediente a exportar
+                              Material(
+                                color: AppColors.darkNavy.withAlpha(10),
+                                borderRadius: BorderRadius.circular(10),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: _elegirPeriodo,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.date_range, size: 18, color: AppColors.darkNavy),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Período: $_textoPeriodo',
+                                            style: const TextStyle(fontSize: 13, color: AppColors.darkNavy),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (_periodo != null)
+                                          IconButton(
+                                            tooltip: 'Exportar todo el expediente',
+                                            icon: const Icon(Icons.close, size: 18),
+                                            visualDensity: VisualDensity.compact,
+                                            onPressed: () => setState(() => _periodo = null),
+                                          )
+                                        else
+                                          const Padding(
+                                            padding: EdgeInsets.symmetric(vertical: 10),
+                                            child: Text(
+                                              'Cambiar',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppColors.tealCyan,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+
                               // Botones de Exportación Oficial
                               Row(
                                 children: [
@@ -309,7 +327,7 @@ class _ExpedienteDetalleScreenState extends State<ExpedienteDetalleScreen> with 
                                         side: const BorderSide(color: AppColors.darkNavy, width: 1.5),
                                         padding: const EdgeInsets.symmetric(vertical: 10),
                                       ),
-                                      onPressed: _isDownloadingPdf ? null : _exportarPdf,
+                                      onPressed: _isDownloadingPdf ? null : () => _exportar(zip: false),
                                       icon: _isDownloadingPdf
                                           ? const SizedBox(
                                               height: 16,
@@ -327,7 +345,7 @@ class _ExpedienteDetalleScreenState extends State<ExpedienteDetalleScreen> with 
                                         backgroundColor: AppColors.tealCyan,
                                         padding: const EdgeInsets.symmetric(vertical: 10),
                                       ),
-                                      onPressed: _isDownloadingZip ? null : _exportarZip,
+                                      onPressed: _isDownloadingZip ? null : () => _exportar(zip: true),
                                       icon: _isDownloadingZip
                                           ? const SizedBox(
                                               height: 16,

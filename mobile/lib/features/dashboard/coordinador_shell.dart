@@ -132,7 +132,7 @@ class _CoordinadorShellState extends State<CoordinadorShell> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          const CoordinadorHomeContent(),
+          CoordinadorHomeContent(onAbrirComunidades: () => _irA(1)),
           const ComunidadesScreen(),
           const CoordinadorActividadesContent(),
           const ApadrinadosListScreen(embedded: true),

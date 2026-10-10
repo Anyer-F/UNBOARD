@@ -87,25 +87,6 @@ class _ApadrinadoHomeContentState extends State<ApadrinadoHomeContent> {
     }
   }
 
-  List<Actividad> get _pendientes => _actividades
-      .where((a) =>
-          a.estado == 'PENDIENTE' ||
-          a.estado == 'EN_PROCESO' ||
-          a.estado == 'CORRECCION_SOLICITADA')
-      .toList();
-
-  Actividad? get _proximaActividad {
-    final pendientes = List<Actividad>.from(_pendientes);
-    pendientes.sort((a, b) {
-      final fa = a.fechaLimite ?? '9999';
-      final fb = b.fechaLimite ?? '9999';
-      return fa.compareTo(fb);
-    });
-    return pendientes.isNotEmpty ? pendientes.first : null;
-  }
-
-  String get _comunidad =>
-      _expediente?.apadrinado?.comunidadNombre ?? 'No asignada';
 
   @override
   Widget build(BuildContext context) {
@@ -123,203 +104,237 @@ class _ApadrinadoHomeContentState extends State<ApadrinadoHomeContent> {
       );
     }
 
-    final proxima = _proximaActividad;
-
-    return RefreshIndicator(
+    return ApadrinadoHomeView(
+      nombre: user?.nombre ?? 'Apadrinado',
+      comunidad: _expediente?.apadrinado?.comunidadNombre ?? 'No asignada',
+      actividades: _actividades,
+      notificaciones: _notificaciones,
       onRefresh: _cargarDatos,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: Responsive.screenPadding(context).copyWith(
-              top: AppSpacing.lg,
-              bottom: AppSpacing.xxl,
-            ),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: Responsive.maxContentWidth(context),
+      onAbrirActividad: (actividad) async {
+        final enviada = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ActividadEntregaScreen(actividad: actividad),
           ),
+        );
+        if (enviada == true) _cargarDatos();
+      },
+      onAbrirExpediente: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ExpedienteScreen()),
+        );
+      },
+    );
+  }
+}
+
+/// Vista del dashboard del Apadrinado (sin estado ni red).
+///
+/// Una columna en teléfonos; en tablet/web la actividad próxima y el
+/// resumen quedan a la izquierda y el expediente y las notificaciones
+/// a la derecha.
+class ApadrinadoHomeView extends StatelessWidget {
+  final String nombre;
+  final String comunidad;
+  final List<Actividad> actividades;
+  final List<Notificacion> notificaciones;
+  final Future<void> Function() onRefresh;
+  final void Function(Actividad)? onAbrirActividad;
+  final VoidCallback? onAbrirExpediente;
+
+  const ApadrinadoHomeView({
+    super.key,
+    required this.nombre,
+    required this.comunidad,
+    required this.actividades,
+    required this.notificaciones,
+    required this.onRefresh,
+    this.onAbrirActividad,
+    this.onAbrirExpediente,
+  });
+
+  List<Actividad> get _pendientes => actividades
+      .where((a) =>
+          a.estado == 'PENDIENTE' ||
+          a.estado == 'EN_PROCESO' ||
+          a.estado == 'CORRECCION_SOLICITADA')
+      .toList();
+
+  Actividad? get _proximaActividad {
+    final pendientes = List<Actividad>.from(_pendientes);
+    pendientes.sort((a, b) {
+      final fa = a.fechaLimite ?? '9999';
+      final fb = b.fechaLimite ?? '9999';
+      return fa.compareTo(fb);
+    });
+    return pendientes.isNotEmpty ? pendientes.first : null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final proxima = _proximaActividad;
+    final pendientes = _pendientes.length;
+
+    return DashboardLayout(
+      onRefresh: onRefresh,
+      principal: [
+        // Saludo
+        ProfileHeader(
+          nombre: '¡Hola, $nombre!',
+          correo: 'Comunidad: $comunidad',
+        ),
+        const SizedBox(height: AppSpacing.xl),
+
+        // Actividad próxima
+        if (proxima != null) ...[
+          const SectionHeader(
+            title: 'Actividad próxima',
+            subtitle: 'Requiere tu atención',
+          ),
+          ActivityCard(
+            actividad: proxima,
+            showProgress: true,
+            completedItems: 0,
+            totalItems: 1,
+            onTap: onAbrirActividad == null
+                ? null
+                : () => onAbrirActividad!(proxima),
+          ),
+        ] else ...[
+          const SizedBox(height: AppSpacing.sm),
+          const EmptyState(
+            icon: Icons.assignment_turned_in_outlined,
+            title: 'Sin actividades pendientes',
+            description: 'Cuando te asignen una actividad aparecerá aquí',
+          ),
+        ],
+        const SizedBox(height: AppSpacing.xl),
+
+        // Resumen
+        const SectionHeader(
+          title: 'Mi resumen',
+          subtitle: 'Estado general de tus actividades',
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        MetricRow(
+          children: [
+            _MetricCard(
+              label: 'Pendientes',
+              value: '$pendientes',
+              icon: Icons.assignment_late_outlined,
+              color: AppColors.mustardGold,
+            ),
+            _MetricCard(
+              label: 'Completadas',
+              value: '${actividades.length - pendientes}',
+              icon: Icons.check_circle_outline,
+              color: AppColors.sageGreen,
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xl),
+      ],
+      secundario: [
+        // Expediente digital
+        const SectionHeader(
+          title: 'Mi expediente digital',
+          subtitle: 'Tu carpeta digital organizada',
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        AppCard(
+          onTap: onAbrirExpediente,
+          padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Saludo
-              ProfileHeader(
-                nombre: '¡Hola, ${user?.nombre ?? "Apadrinado"}!',
-                correo: 'Comunidad: $_comunidad',
-              ),
-              const SizedBox(height: AppSpacing.xl),
-
-              // Actividad próxima
-              if (proxima != null) ...[
-                const SectionHeader(
-                  title: 'Actividad próxima',
-                  subtitle: 'Requiere tu atención',
-                ),
-                ActivityCard(
-                  actividad: proxima,
-                  showProgress: true,
-                  completedItems: 0,
-                  totalItems: 1,
-                  onTap: () async {
-                    final enviada = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ActividadEntregaScreen(
-                          actividad: proxima,
-                        ),
-                      ),
-                    );
-                    if (enviada == true) _cargarDatos();
-                  },
-                ),
-              ] else ...[
-                const SizedBox(height: AppSpacing.sm),
-                const EmptyState(
-                  icon: Icons.assignment_turned_in_outlined,
-                  title: 'Sin actividades pendientes',
-                  description: 'Cuando te asignen una actividad aparecerá aquí',
-                ),
-              ],
-              const SizedBox(height: AppSpacing.xl),
-
-              // Resumen
-              const SectionHeader(
-                title: 'Mi resumen',
-                subtitle: 'Estado general de tus actividades',
-              ),
-              const SizedBox(height: AppSpacing.sm),
               Row(
                 children: [
-                  Expanded(
-                    child: _MetricCard(
-                      label: 'Pendientes',
-                      value: '${_pendientes.length}',
-                      icon: Icons.assignment_late_outlined,
-                      color: AppColors.mustardGold,
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkNavy.withAlpha(13),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                    ),
+                    child: const Icon(
+                      Icons.folder_shared_outlined,
+                      color: AppColors.darkNavy,
+                      size: 28,
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: _MetricCard(
-                      label: 'Completadas',
-                      value: '${_actividades.length - _pendientes.length}',
-                      icon: Icons.check_circle_outline,
-                      color: AppColors.sageGreen,
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Ver mi expediente',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                          ),
+                        ),
+                        SizedBox(height: AppSpacing.xs),
+                        Text(
+                          'Documentos, fotografías, cartas y evidencias',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+                  const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: AppColors.textTertiary,
                   ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.xl),
-
-              // Expediente digital
-              const SectionHeader(
-                title: 'Mi expediente digital',
-                subtitle: 'Tu carpeta digital organizada',
+              const SizedBox(height: AppSpacing.md),
+              const Divider(height: 1),
+              const SizedBox(height: AppSpacing.md),
+              const Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  _ExpedienteShortcut(
+                    icon: Icons.description_outlined,
+                    label: 'Documentos',
+                    color: AppColors.darkNavy,
+                  ),
+                  _ExpedienteShortcut(
+                    icon: Icons.photo_library_outlined,
+                    label: 'Fotografías',
+                    color: AppColors.tealCyan,
+                  ),
+                  _ExpedienteShortcut(
+                    icon: Icons.mail_outline,
+                    label: 'Cartas',
+                    color: AppColors.mustardGold,
+                  ),
+                  _ExpedienteShortcut(
+                    icon: Icons.verified_outlined,
+                    label: 'Evidencias',
+                    color: AppColors.sageGreen,
+                  ),
+                ],
               ),
-              const SizedBox(height: AppSpacing.sm),
-              AppCard(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const ExpedienteScreen(),
-                    ),
-                  );
-                },
-                padding: const EdgeInsets.all(AppSpacing.lg),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(AppSpacing.md),
-                          decoration: BoxDecoration(
-                            color: AppColors.darkNavy.withAlpha(13),
-                            borderRadius:
-                                BorderRadius.circular(AppRadius.md),
-                          ),
-                          child: const Icon(
-                            Icons.folder_shared_outlined,
-                            color: AppColors.darkNavy,
-                            size: 28,
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Ver mi expediente',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              SizedBox(height: AppSpacing.xs),
-                              Text(
-                                'Documentos, fotografías, cartas y evidencias',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(
-                          Icons.arrow_forward_ios,
-                          size: 16,
-                          color: AppColors.textTertiary,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    const Divider(height: 1),
-                    const SizedBox(height: AppSpacing.md),
-                    Wrap(
-                      spacing: AppSpacing.sm,
-                      runSpacing: AppSpacing.sm,
-                      children: [
-                        _ExpedienteShortcut(
-                          icon: Icons.description_outlined,
-                          label: 'Documentos',
-                          color: AppColors.darkNavy,
-                        ),
-                        _ExpedienteShortcut(
-                          icon: Icons.photo_library_outlined,
-                          label: 'Fotografías',
-                          color: AppColors.tealCyan,
-                        ),
-                        _ExpedienteShortcut(
-                          icon: Icons.mail_outline,
-                          label: 'Cartas',
-                          color: AppColors.mustardGold,
-                        ),
-                        _ExpedienteShortcut(
-                          icon: Icons.verified_outlined,
-                          label: 'Evidencias',
-                          color: AppColors.sageGreen,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xl),
-
-              // Notificaciones recientes
-              if (_notificaciones.isNotEmpty) ...[
-                const SectionHeader(
-                  title: 'Notificaciones recientes',
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                ..._notificaciones.map(
-                  (notif) => NotificationCard(notificacion: notif),
-                ),
-              ],
             ],
           ),
         ),
-      ),
+        const SizedBox(height: AppSpacing.xl),
+
+        // Notificaciones recientes
+        if (notificaciones.isNotEmpty) ...[
+          const SectionHeader(title: 'Notificaciones recientes'),
+          const SizedBox(height: AppSpacing.sm),
+          ...notificaciones.map(
+            (notif) => NotificationCard(notificacion: notif),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -351,16 +366,22 @@ class _MetricCard extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 20),
           const SizedBox(height: AppSpacing.sm),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
           Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: color.withAlpha(204),
               fontSize: 12,
@@ -405,7 +426,7 @@ class _ExpedienteShortcut extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 12,
-      fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w600,
               color: color,
             ),
           ),

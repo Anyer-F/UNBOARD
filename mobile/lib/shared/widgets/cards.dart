@@ -34,6 +34,9 @@ class ActivityCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = AppTheme.getEstadoColor(actividad.estado);
+    // En teléfonos angostos el estado pasa debajo del título para que
+    // la etiqueta no aplaste el texto.
+    final angosta = MediaQuery.sizeOf(context).width < 400;
 
     return AppCard(
       onTap: onTap,
@@ -54,8 +57,10 @@ class ActivityCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              StatusChip(estado: actividad.estado),
+              if (!angosta) ...[
+                const SizedBox(width: AppSpacing.sm),
+                StatusChip(estado: actividad.estado),
+              ],
               if (onEditar != null || onEliminar != null) ...[
                 const SizedBox(width: AppSpacing.xs),
                 PopupMenuButton<String>(
@@ -99,6 +104,10 @@ class ActivityCard extends StatelessWidget {
               ],
             ],
           ),
+          if (angosta) ...[
+            const SizedBox(height: AppSpacing.xs),
+            StatusChip(estado: actividad.estado),
+          ],
           if (actividad.descripcion != null) ...[
             const SizedBox(height: AppSpacing.sm),
             Text(

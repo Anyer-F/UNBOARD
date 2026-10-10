@@ -131,13 +131,18 @@ class ApiService {
   /// Descarga de bytes para archivos (PDF, ZIP, imágenes).
   Future<Uint8List> getBytes(String endpoint) async {
     final uri = Uri.parse('$_baseUrl$endpoint');
+    // Accept genérico: el backend responde application/pdf o application/zip
+    // y rechaza con 406 una petición que solo acepte JSON.
+    final headers = _getHeaders(isJson: false)..['Accept'] = '*/*';
     try {
       final response = await http
-          .get(uri, headers: _getHeaders(isJson: false))
-          .timeout(_timeout);
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 90));
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return response.bodyBytes;
       }
+      // Reutiliza el mensaje de error del backend cuando lo hay
+      _handleResponse(response);
       throw Exception(
         'Error al descargar archivo: código HTTP ${response.statusCode}',
       );

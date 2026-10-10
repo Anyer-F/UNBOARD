@@ -1,0 +1,61 @@
+# Compila el APK de la app móvil (Flutter) en los servidores de GitHub.
+#
+# Se ejecuta:
+#  - automáticamente al subir cambios de la carpeta mobile/ a main;
+#  - manualmente desde la pestaña "Actions" > "Compilar APK" > "Run workflow".
+#
+# El APK queda para descargar en el resumen de la ejecución,
+# sección "Artifacts" > "unbound-apk".
+name: Compilar APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/build-apk.yml'
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar Flutter (misma versión que en desarrollo)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
+          channel: stable
+          cache: true
+
+      - name: Instalar dependencias
+        run: flutter pub get
+
+      - name: Analizar el código
+        run: flutter analyze
+
+      - name: Ejecutar pruebas
+        run: flutter test
+
+      - name: Compilar APK (release)
+        run: flutter build apk --release
+
+      - name: Publicar el APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: unbound-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
