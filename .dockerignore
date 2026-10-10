@@ -1,0 +1,9 @@
+# Contexto de build para la imagen web (deploy/web/Dockerfile).
+#
+# * excluye todo lo de nivel superior (.git, backend/, node_modules...).
+# Se re-incluyen los padres mobile/ y deploy/ porque Docker no permite
+# re-incluir una ruta anidada si su directorio padre esta excluido.
+# Asi el contexto solo contiene mobile/ (con build/web) y deploy/.
+*
+!mobile
+!deploy

@@ -23,3 +23,11 @@ Thumbs.db
 # Environment and local overrides
 *.env
 .env.local
+
+# Firebase / Google / signing secrets — NEVER commit real keys
+**/serviceAccountKey.json
+**/google-services.json
+**/GoogleService-Info.plist
+
+# TLS certificates (self-signed de prueba / reales) — nunca commitear
+deploy/web/certs/

@@ -73,7 +73,10 @@ class AppCard extends StatelessWidget {
               vertical: AppSpacing.sm,
               horizontal: AppSpacing.lg,
             ),
-      child: cardContent,
+      child: Material(
+        color: Colors.transparent,
+        child: cardContent,
+      ),
     );
   }
 }

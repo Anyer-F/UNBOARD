@@ -55,16 +55,16 @@ public class AuthController {
 
     /**
      * Paso 1: solicita un código de recuperación para el correo.
-     * PROTOTIPO: el código se devuelve en la respuesta y se registra en el log.
-     * En producción se enviará por correo electrónico.
+     * El código se registra en el log del servidor (prototipo).
+     * En producción se enviará por correo electrónico y NUNCA se
+     * devolverá en la respuesta HTTP.
      */
     @PostMapping("/recuperar-password")
     public ResponseEntity<Map<String, Object>> recuperarPassword(
             @RequestBody RecuperarPasswordRequestDTO request) {
-        String codigo = authService.solicitarRecuperacion(request.getCorreo());
+        authService.solicitarRecuperacion(request.getCorreo());
         return ResponseEntity.ok(Map.of(
-                "mensaje", "Si el correo existe, se ha enviado un código de recuperación.",
-                "codigo", codigo != null ? codigo : ""
+                "mensaje", "Si el correo existe, se ha enviado un código de recuperación."
         ));
     }
 

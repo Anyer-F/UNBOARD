@@ -1,25 +1,73 @@
-version: '3.9'
+# Pila completa UNBOUND: PostgreSQL + Backend (Spring Boot) + Web (nginx/TLS).
+#
+# - El volumen postgres_data ya existe con los datos (se reutiliza).
+# - backend expone 8081 directo (para la app movil) y tambien por
+#   HTTPS via nginx (/api) para la web (mismo origen).
+# - Variables de entorno en .env (git-ignorado).
 
 services:
 
   postgres:
 
     image: postgres:16
-
     container_name: unbound_db
-
     restart: always
-
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
+      # Solo aplica en la PRIMERA inicializacion del volumen.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-123456}
       POSTGRES_DB: unbound
-
     ports:
       - "5433:5432"
-
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d unbound"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+
+    build:
+      context: ./backend
+    container_name: unbound_backend
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/unbound
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-123456}
+      # >= 32 caracteres; se genera en .env. Sin ella, clave aleatoria
+      # efimera (invalida los tokens al reiniciar).
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-}
+    ports:
+      - "8081:8081"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8081/swagger-ui.html"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  web:
+
+    build:
+      context: .
+      dockerfile: deploy/web/Dockerfile
+    container_name: unbound_web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  uploads_data:
