@@ -40,7 +40,7 @@ class _DocumentoViewerModalState extends State<DocumentoViewerModal> {
 
   Future<void> _cargarContenido() async {
     try {
-      final bytes = await _docService.descargarDocumento(widget.documento.id);
+      final bytes = await _docService.descargar(widget.documento);
       String? carta;
       if (widget.documento.isText) {
         try {
@@ -77,7 +77,7 @@ class _DocumentoViewerModalState extends State<DocumentoViewerModal> {
 
     try {
       final bytes =
-          _bytes ?? await _docService.descargarDocumento(widget.documento.id);
+          _bytes ?? await _docService.descargar(widget.documento);
       final cleanName = widget.documento.nombreOriginal
           .replaceAll(RegExp(r'[^\w\.\-]'), '_');
       final mensaje = await guardarYAbrirArchivo(

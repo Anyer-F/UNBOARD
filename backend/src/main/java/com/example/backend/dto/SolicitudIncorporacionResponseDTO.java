@@ -1,5 +1,6 @@
 package com.example.backend.dto;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import lombok.AllArgsConstructor;
@@ -12,10 +13,15 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class SolicitudIncorporacionResponseDTO {
+
     private Long id;
     private Long usuarioId;
     private String usuarioNombre;
+    private String usuarioApellido;
     private String usuarioCorreo;
+    private String usuarioTelefono;
+    private String usuarioDireccion;
+    private LocalDate usuarioFechaNacimiento;
     private Long comunidadId;
     private String comunidadNombre;
     private String codigo;

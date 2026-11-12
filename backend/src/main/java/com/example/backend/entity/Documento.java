@@ -34,7 +34,7 @@ public class Documento {
     @Column(name = "nombre_original", nullable = false, length = 255)
     private String nombreOriginal;
 
-    @Column(name = "nombre_almacenado", nullable = false, length = 255, unique = true)
+    @Column(name = "nombre_almacenado", nullable = false, length = 255)
     private String nombreAlmacenado;
 
     @Column(name = "ruta_archivo", nullable = false, length = 500)
@@ -58,7 +58,7 @@ public class Documento {
     private String descripcion;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "id_expediente", nullable = false)
+    @JoinColumn(name = "id_expediente")
     private Expediente expediente;
 
     @ManyToOne(fetch = FetchType.EAGER)
@@ -69,10 +69,23 @@ public class Documento {
     @JoinColumn(name = "id_usuario")
     private Usuario subidoPor;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private OrigenDocumento origen = OrigenDocumento.APADRINADO;
+
+    /** Versión de la entrega a la que pertenece (archivos del apadrinado). */
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "id_entrega")
+    private Entrega entrega;
+
     @PrePersist
     public void prePersist() {
         if (this.fechaSubida == null) {
             this.fechaSubida = LocalDateTime.now();
+        }
+        if (this.origen == null) {
+            this.origen = OrigenDocumento.APADRINADO;
         }
         if (this.tipoDocumento == null) {
             this.tipoDocumento = TipoDocumento.OTRO;

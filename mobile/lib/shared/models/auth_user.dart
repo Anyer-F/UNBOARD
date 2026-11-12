@@ -22,6 +22,20 @@ class AuthUser {
   bool get isCoordinador => rol.toLowerCase().contains('coord');
   bool get isApadrinado => rol.toLowerCase().contains('apad');
 
+  /// Apadrinado que aún no pertenece a una comunidad.
+  bool get sinComunidad => isApadrinado && apadrinadoId == null;
+
+  AuthUser copyWith({String? nombre, int? coordinadorId, int? apadrinadoId}) => AuthUser(
+        token: token,
+        tokenType: tokenType,
+        usuarioId: usuarioId,
+        nombre: nombre ?? this.nombre,
+        correo: correo,
+        rol: rol,
+        coordinadorId: coordinadorId ?? this.coordinadorId,
+        apadrinadoId: apadrinadoId ?? this.apadrinadoId,
+      );
+
   factory AuthUser.fromJson(Map<String, dynamic> json) {
     return AuthUser(
       token: json['token'] ?? '',

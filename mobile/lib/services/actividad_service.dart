@@ -1,82 +1,85 @@
-import '../shared/models/actividad.dart';
-import '../shared/models/historial_actividad.dart';
 import '../core/network/api_client.dart';
+import '../shared/models/actividad.dart';
+import '../shared/models/asignacion.dart';
+import '../shared/models/documento.dart';
+import '../shared/models/expediente.dart';
+import '../shared/models/historial_actividad.dart';
 
+/// Actividades (funciones del coordinador): tablero, CRUD, contenido
+/// adjunto, cambio de módulo, historial y exportación.
 class ActividadService {
   final ApiService _api = ApiService();
 
-  Future<List<Actividad>> listarPorApadrinado(int apadrinadoId, {String? estado}) async {
-    String endpoint = '/api/actividades/apadrinado/$apadrinadoId';
-    if (estado != null && estado.isNotEmpty) {
-      endpoint += '?estado=$estado';
-    }
-    final response = await _api.get(endpoint);
-    if (response is List) {
-      return response.map((a) => Actividad.fromJson(a)).toList();
-    }
-    return [];
+  /// Tablero de actividades, filtrable por comunidad, módulo y tipo.
+  Future<List<Actividad>> tablero({int? comunidadId, int? moduloId, String? tipo}) async {
+    final params = <String>[
+      if (comunidadId != null) 'comunidadId=$comunidadId',
+      if (moduloId != null) 'moduloId=$moduloId',
+      if (tipo != null) 'tipo=$tipo',
+    ];
+    final response = await _api.get('/api/actividades${params.isEmpty ? '' : '?${params.join('&')}'}');
+    return _lista(response, Actividad.fromJson);
   }
 
-  Future<List<Actividad>> listarPorCoordinador(int coordinadorId, {String? estado}) async {
-    String endpoint = '/api/actividades/coordinador/$coordinadorId';
-    if (estado != null && estado.isNotEmpty) {
-      endpoint += '?estado=$estado';
-    }
-    final response = await _api.get(endpoint);
-    if (response is List) {
-      return response.map((a) => Actividad.fromJson(a)).toList();
-    }
-    return [];
+  Future<ActividadDetalle> detalle(int actividadId) async {
+    return ActividadDetalle.fromJson(await _api.get('/api/actividades/$actividadId'));
   }
 
-  Future<Actividad> obtenerPorId(int id) async {
-    final response = await _api.get('/api/actividades/$id');
-    return Actividad.fromJson(response);
+  /// [datos]: tipo, titulo, descripcion, instrucciones, fechaLimite
+  /// (yyyy-MM-dd), requiereDocumento, requiereFotografia, requiereCarta,
+  /// otrosRequisitos, comunidadId, moduloId, asignarAComunidad, apadrinadoIds.
+  Future<Actividad> crear(Map<String, dynamic> datos) async {
+    return Actividad.fromJson(await _api.post('/api/actividades', datos));
   }
 
-  Future<Actividad> crear(Map<String, dynamic> data) async {
-    final response = await _api.post('/api/actividades', data);
-    return Actividad.fromJson(response);
+  Future<Actividad> actualizar(int actividadId, Map<String, dynamic> datos) async {
+    return Actividad.fromJson(await _api.put('/api/actividades/$actividadId', datos));
   }
 
-  Future<List<Actividad>> crearMasiva(Map<String, dynamic> data) async {
-    final response = await _api.post('/api/actividades/masiva', data);
-    if (response is List) {
-      return response.map((a) => Actividad.fromJson(a)).toList();
-    }
-    return [];
+  /// Elimina la actividad. Si tiene entregas el backend responde 409
+  /// ([ApiException.requiereConfirmacion]) hasta que se envíe [confirmar].
+  /// Devuelve 'LOGICA' o 'DEFINITIVA'.
+  Future<String> eliminar(int actividadId, {bool confirmar = false}) async {
+    final response = await _api.delete('/api/actividades/$actividadId?confirmar=$confirmar');
+    return response is Map ? (response['eliminacion']?.toString() ?? '') : '';
   }
 
-  Future<Actividad> actualizar(int id, Map<String, dynamic> data) async {
-    final response = await _api.put('/api/actividades/$id', data);
-    return Actividad.fromJson(response);
+  /// Contenido del coordinador: documentos, fotografías o material.
+  Future<Documento> subirAdjunto(int actividadId, List<int> bytes, String nombre, {String? descripcion}) async {
+    final response = await _api.uploadMultipart(
+      endpoint: '/api/actividades/$actividadId/adjuntos',
+      fileBytes: bytes,
+      filename: nombre,
+      fields: {if (descripcion != null && descripcion.isNotEmpty) 'descripcion': descripcion},
+    );
+    return Documento.fromJson(response);
   }
 
-  Future<void> eliminar(int id) async {
-    await _api.delete('/api/actividades/$id');
+  Future<void> eliminarAdjunto(int actividadId, int documentoId) async {
+    await _api.delete('/api/actividades/$actividadId/adjuntos/$documentoId');
   }
 
-  Future<Actividad> cambiarEstado(int id, String estado, {String? observaciones}) async {
-    final response = await _api.patch('/api/actividades/$id/estado', {
-      'estado': estado,
-      'observaciones': observaciones,
-    });
-    return Actividad.fromJson(response);
+  Future<ActividadDetalle> moverAModulo(int actividadId, int moduloId) async {
+    return ActividadDetalle.fromJson(
+        await _api.patch('/api/actividades/$actividadId/modulo', {'moduloId': moduloId}));
   }
 
-  Future<List<HistorialActividad>> obtenerHistorialPorActividad(int actividadId) async {
-    final response = await _api.get('/api/actividades/$actividadId/historial');
-    if (response is List) {
-      return response.map((h) => HistorialActividad.fromJson(h)).toList();
-    }
-    return [];
+  Future<List<HistorialActividad>> historial(int actividadId) async {
+    return _lista(await _api.get('/api/actividades/$actividadId/historial'), HistorialActividad.fromJson);
   }
 
-  Future<List<HistorialActividad>> obtenerHistorialPorApadrinado(int apadrinadoId) async {
-    final response = await _api.get('/api/actividades/apadrinado/$apadrinadoId/historial');
-    if (response is List) {
-      return response.map((h) => HistorialActividad.fromJson(h)).toList();
-    }
-    return [];
+  /// Expediente PDF de la actividad con las entregas aprobadas.
+  Future<Exportacion> exportarPdf(int actividadId) async {
+    return Exportacion.fromJson(await _api.post('/api/actividades/$actividadId/exportar-pdf', {}));
+  }
+
+  /// Carpeta ZIP con los archivos de las entregas aprobadas.
+  Future<Exportacion> exportarZip(int actividadId) async {
+    return Exportacion.fromJson(await _api.post('/api/actividades/$actividadId/exportar-zip', {}));
+  }
+
+  static List<T> _lista<T>(dynamic response, T Function(Map<String, dynamic>) fromJson) {
+    if (response is! List) return <T>[];
+    return response.whereType<Map>().map((e) => fromJson(Map<String, dynamic>.from(e))).toList();
   }
 }

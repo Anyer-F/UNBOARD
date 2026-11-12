@@ -17,7 +17,7 @@ void main() {
       ),
     );
 
-    expect(find.text('UNBOUND DMS'), findsOneWidget);
+    expect(find.text('UNBOARD'), findsOneWidget);
 
     // Desmonta la app y deja vencer el temporizador del splash
     await tester.pumpWidget(const SizedBox());

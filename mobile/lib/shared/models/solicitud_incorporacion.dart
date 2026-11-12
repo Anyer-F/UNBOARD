@@ -1,44 +1,66 @@
-/// Solicitud de incorporación a una comunidad (especificación §24).
+import 'json_utils.dart';
+
+/// Solicitud de incorporación a una comunidad, con el perfil del solicitante.
 class SolicitudIncorporacion {
   final int id;
+  final int? usuarioId;
   final int? comunidadId;
   final String nombre;
+  final String? apellido;
   final String? correo;
   final String? telefono;
+  final String? direccion;
+  final String? fechaNacimiento;
   final String? comunidadNombre;
+  final String? codigo;
   final String? fechaSolicitud;
-  final String? informacionBasica;
+  final String? fechaRespuesta;
+  final String? observaciones;
+
+  /// PENDIENTE, APROBADA o RECHAZADA.
   final String estado;
 
   SolicitudIncorporacion({
     required this.id,
+    this.usuarioId,
     this.comunidadId,
     required this.nombre,
+    this.apellido,
     this.correo,
     this.telefono,
+    this.direccion,
+    this.fechaNacimiento,
     this.comunidadNombre,
+    this.codigo,
     this.fechaSolicitud,
-    this.informacionBasica,
-    this.estado = 'PENDIENTE',
+    this.fechaRespuesta,
+    this.observaciones,
+    required this.estado,
   });
 
-  bool get isPendiente => estado.toUpperCase() == 'PENDIENTE';
+  String get nombreCompleto =>
+      [nombre, apellido].where((s) => s != null && s.isNotEmpty).join(' ');
+
+  bool get pendiente => estado == 'PENDIENTE';
+  bool get aprobada => estado == 'APROBADA';
+  bool get rechazada => estado == 'RECHAZADA';
 
   factory SolicitudIncorporacion.fromJson(Map<String, dynamic> json) {
     return SolicitudIncorporacion(
-      id: json['id'] is int ? json['id'] : int.parse(json['id'].toString()),
-      comunidadId: json['comunidadId'] != null
-          ? int.tryParse(json['comunidadId'].toString())
-          : null,
-      nombre: json['nombre'] ??
-          json['usuarioNombre'] ??
-          json['nombreCompleto'] ??
-          '',
-      correo: json['correo'] ?? json['usuarioCorreo'],
-      telefono: json['telefono'],
-      comunidadNombre: json['comunidadNombre'] ?? json['comunidad'],
-      fechaSolicitud: json['fechaSolicitud'] ?? json['fechaCreacion'],
-      informacionBasica: json['informacionBasica'] ?? json['notas'],
+      id: toInt(json['id']),
+      usuarioId: toIntOrNull(json['usuarioId']),
+      comunidadId: toIntOrNull(json['comunidadId']),
+      nombre: json['usuarioNombre'] ?? json['nombre'] ?? 'Solicitante',
+      apellido: json['usuarioApellido'],
+      correo: json['usuarioCorreo'] ?? json['correo'],
+      telefono: json['usuarioTelefono'] ?? json['telefono'],
+      direccion: json['usuarioDireccion'],
+      fechaNacimiento: json['usuarioFechaNacimiento']?.toString(),
+      comunidadNombre: json['comunidadNombre'],
+      codigo: json['codigo'],
+      fechaSolicitud: json['fechaSolicitud']?.toString(),
+      fechaRespuesta: json['fechaRespuesta']?.toString(),
+      observaciones: json['observaciones'],
       estado: json['estado'] ?? 'PENDIENTE',
     );
   }

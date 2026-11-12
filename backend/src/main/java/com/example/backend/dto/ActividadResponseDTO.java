@@ -1,8 +1,10 @@
 package com.example.backend.dto;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 
-import com.example.backend.entity.EstadoActividad;
+import com.example.backend.entity.TipoActividad;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -14,17 +16,27 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class ActividadResponseDTO {
+
     private Long id;
+    private TipoActividad tipo;
     private String titulo;
     private String descripcion;
-    private LocalDate fechaCreacion;
+    private String instrucciones;
+    private LocalDateTime fechaCreacion;
+    private LocalDateTime fechaActualizacion;
     private LocalDate fechaLimite;
     private Boolean requiereDocumento;
     private Boolean requiereFotografia;
-    private EstadoActividad estado;
-    private String observaciones;
+    private Boolean requiereCarta;
+    private String otrosRequisitos;
+    private Long comunidadId;
+    private String comunidadNombre;
+    private Long moduloId;
+    private String moduloNombre;
     private Long coordinadorId;
     private String coordinadorNombre;
-    private Long apadrinadoId;
-    private String apadrinadoNombre;
+    private Boolean asignadaAComunidad;
+    private Boolean eliminada;
+    private List<DocumentoResponseDTO> adjuntos;
+    private ResumenAvanceDTO resumen;
 }

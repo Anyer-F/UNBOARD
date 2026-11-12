@@ -60,6 +60,11 @@ public class Carta {
     @JoinColumn(name = "id_actividad")
     private Actividad actividad;
 
+    /** Versión de la entrega a la que pertenece (cartas de una tarea). */
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "id_entrega")
+    private Entrega entrega;
+
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "id_apadrinado", nullable = false)
     private Apadrinado apadrinado;

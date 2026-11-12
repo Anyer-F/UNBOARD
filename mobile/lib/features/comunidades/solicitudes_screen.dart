@@ -1,61 +1,53 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/constants/app_spacing.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/utils/date_utils.dart';
-import '../../../core/utils/responsive.dart';
-import '../../../shared/models/comunidad.dart';
-import '../../../shared/models/solicitud_incorporacion.dart';
-import '../../../shared/widgets/app_button.dart';
-import '../../../shared/widgets/app_card.dart';
-import '../../../shared/widgets/common_widgets.dart';
-import '../../../shared/widgets/confirmation_dialog.dart';
-import '../../../shared/widgets/states.dart';
-import '../../../shared/widgets/status_chip.dart';
-import '../../../services/expediente_service.dart';
+import '../../core/constants/app_spacing.dart';
+import '../../core/network/api_client.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/utils/date_utils.dart';
+import '../../core/utils/responsive.dart';
+import '../../services/comunidad_service.dart';
+import '../../shared/models/solicitud_incorporacion.dart';
+import '../../shared/widgets/app_card.dart';
+import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirmation_dialog.dart';
+import '../../shared/widgets/states.dart';
 
-/// Solicitudes de incorporación a una comunidad (especificación §24).
-///
-/// Lista de personas que desean ingresar. Cada tarjeta muestra
-/// fotografía, nombre, información básica y fecha.
-/// Acciones: Ver perfil, Rechazar, Aceptar (con confirmación).
+/// Solicitudes de incorporación pendientes (de una comunidad o de todas
+/// las comunidades del coordinador). Antes de decidir se puede consultar
+/// el perfil del solicitante.
 class SolicitudesScreen extends StatefulWidget {
-  final Comunidad comunidad;
+  final int? comunidadId;
 
-  const SolicitudesScreen({
-    super.key,
-    required this.comunidad,
-  });
+  const SolicitudesScreen({super.key, this.comunidadId});
 
   @override
   State<SolicitudesScreen> createState() => _SolicitudesScreenState();
 }
 
 class _SolicitudesScreenState extends State<SolicitudesScreen> {
-  final _expedienteService = ExpedienteService();
+  final _servicio = ComunidadService();
 
   List<SolicitudIncorporacion> _solicitudes = [];
   bool _isLoading = true;
   String? _error;
+  final Set<int> _procesando = {};
 
   @override
   void initState() {
     super.initState();
-    _cargarSolicitudes();
+    _cargar();
   }
 
-  Future<void> _cargarSolicitudes() async {
+  Future<void> _cargar() async {
     setState(() {
-      _isLoading = true;
+      _isLoading = _solicitudes.isEmpty;
       _error = null;
     });
-
     try {
-      final solicitudes =
-          await _expedienteService.listarSolicitudes(widget.comunidad.id);
+      final lista = await _servicio.solicitudesPendientes(comunidadId: widget.comunidadId);
       if (mounted) {
         setState(() {
-          _solicitudes = solicitudes;
+          _solicitudes = lista;
           _isLoading = false;
         });
       }
@@ -63,311 +55,304 @@ class _SolicitudesScreenState extends State<SolicitudesScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _error = e.toString().replaceAll('Exception: ', '');
+          _error = mensajeDeError(e);
         });
       }
     }
   }
 
-  Future<void> _responder(
-    SolicitudIncorporacion solicitud, {
-    required bool aceptar,
-  }) async {
-    final confirmar = await showConfirmationDialog(
-      context,
-      title: aceptar ? 'Aceptar solicitud' : 'Rechazar solicitud',
-      message: aceptar
-          ? '¿Aceptar a ${solicitud.nombre} en la comunidad ${widget.comunidad.nombre}?'
-          : '¿Rechazar la solicitud de ${solicitud.nombre}?',
-      confirmLabel: aceptar ? 'Aceptar' : 'Rechazar',
-      isDanger: !aceptar,
-      icon: aceptar ? Icons.check_circle_outline : Icons.cancel_outlined,
+  void _aviso(String texto, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(texto), backgroundColor: error ? AppColors.coralRed : AppColors.sageGreen),
     );
+  }
 
-    if (!confirmar) return;
-
+  Future<void> _aceptar(SolicitudIncorporacion s) async {
+    final ok = await showConfirmationDialog(
+      context,
+      title: 'Aceptar solicitud',
+      message: '${s.nombreCompleto} se incorporará a ${s.comunidadNombre ?? 'la comunidad'} y recibirá las '
+          'actividades asignadas a toda la comunidad.',
+      confirmLabel: 'Aceptar',
+      icon: Icons.check_circle_outline,
+    );
+    if (!ok || !mounted) return;
+    setState(() => _procesando.add(s.id));
     try {
-      await _expedienteService.responderSolicitud(
-        solicitud.id,
-        aceptar: aceptar,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(aceptar
-              ? 'Solicitud aceptada'
-              : 'Solicitud rechazada'),
-        ),
-      );
-      _cargarSolicitudes();
+      await _servicio.aprobarSolicitud(s.id);
+      if (mounted) {
+        _aviso('${s.nombreCompleto} fue incorporado(a)');
+        _cargar();
+      }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
-          backgroundColor: AppColors.coralRed,
-        ),
-      );
+      if (mounted) _aviso(mensajeDeError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _procesando.remove(s.id));
     }
+  }
+
+  Future<void> _rechazar(SolicitudIncorporacion s) async {
+    final motivo = await showDialog<String>(
+      context: context,
+      builder: (_) => _RechazoDialog(nombre: s.nombreCompleto),
+    );
+    if (motivo == null || !mounted) return;
+    setState(() => _procesando.add(s.id));
+    try {
+      await _servicio.rechazarSolicitud(s.id, motivo: motivo);
+      if (mounted) {
+        _aviso('Solicitud rechazada');
+        _cargar();
+      }
+    } catch (e) {
+      if (mounted) _aviso(mensajeDeError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _procesando.remove(s.id));
+    }
+  }
+
+  Future<void> _verPerfil(SolicitudIncorporacion resumen) async {
+    SolicitudIncorporacion s = resumen;
+    try {
+      s = await _servicio.solicitud(resumen.id);
+    } catch (_) {
+      // Se muestra lo que ya se tiene
+    }
+    if (!mounted) return;
+    final accion = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      constraints: const BoxConstraints(maxWidth: 560),
+      builder: (_) => _PerfilSolicitante(solicitud: s),
+    );
+    if (accion == 'aceptar') _aceptar(s);
+    if (accion == 'rechazar') _rechazar(s);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Solicitudes • ${widget.comunidad.nombre}'),
-      ),
+      appBar: AppBar(title: const Text('Solicitudes de incorporación')),
       body: _isLoading
           ? const LoadingState(message: 'Cargando solicitudes...')
-          : _error != null
-              ? ErrorState(
-                  title: 'No se pudieron cargar las solicitudes',
-                  message: _error,
-                  onRetry: _cargarSolicitudes,
-                )
-              : _solicitudes.isEmpty
-                  ? const EmptyState(
-                      icon: Icons.person_search_outlined,
-                      title: 'Sin solicitudes',
-                      description:
-                          'Cuando alguien solicite incorporarse aparecerá aquí',
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _cargarSolicitudes,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: _solicitudes.length,
-                        itemBuilder: (context, index) {
-                          final solicitud = _solicitudes[index];
-                          return _SolicitudCard(
-                            solicitud: solicitud,
-                            onVerPerfil: () => _verPerfil(solicitud),
-                            onAceptar: () =>
-                                _responder(solicitud, aceptar: true),
-                            onRechazar: () =>
-                                _responder(solicitud, aceptar: false),
-                          );
-                        },
-                      ),
-                    ),
-    );
-  }
-
-  void _verPerfil(SolicitudIncorporacion solicitud) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (ctx, scroll) => SingleChildScrollView(
-          controller: scroll,
-          padding: Responsive.screenPadding(ctx).copyWith(
-                top: AppSpacing.xl,
-                bottom: AppSpacing.xxl,
-              ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.borderLight,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+          : _error != null && _solicitudes.isEmpty
+              ? ErrorState(title: 'No se pudieron cargar las solicitudes', message: _error, onRetry: _cargar)
+              : RefreshIndicator(
+                  onRefresh: _cargar,
+                  child: _solicitudes.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: const [
+                            SizedBox(height: 80),
+                            EmptyState(
+                              icon: Icons.how_to_reg_outlined,
+                              title: 'Sin solicitudes pendientes',
+                              description: 'Las personas que usen el código de acceso aparecerán aquí',
+                            ),
+                          ],
+                        )
+                      : ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                          children: [
+                            ResponsiveContent(
+                              maxWidth: 760,
+                              padding: EdgeInsets.zero,
+                              child: Column(
+                                children: [
+                                  for (final s in _solicitudes)
+                                    _SolicitudCard(
+                                      solicitud: s,
+                                      procesando: _procesando.contains(s.id),
+                                      onPerfil: () => _verPerfil(s),
+                                      onAceptar: () => _aceptar(s),
+                                      onRechazar: () => _rechazar(s),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              Center(child: InitialsAvatar(name: solicitud.nombre, size: 72)),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                solicitud.nombre,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'Solicitud del ${AppDateUtils.formatDate(solicitud.fechaSolicitud)}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              if (solicitud.informacionBasica != null) ...[
-                const Text(
-                  'Información básica',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                AppCard(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: Text(
-                    solicitud.informacionBasica!,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppColors.charcoal,
-                    ),
-                  ),
-                ),
-              ],
-              if (solicitud.correo != null) ...[
-                const SizedBox(height: AppSpacing.md),
-                InfoTile(
-                  icon: Icons.email_outlined,
-                  label: 'Correo',
-                  value: solicitud.correo!,
-                ),
-              ],
-              if (solicitud.telefono != null) ...[
-                InfoTile(
-                  icon: Icons.phone_outlined,
-                  label: 'Teléfono',
-                  value: solicitud.telefono!,
-                ),
-              ],
-              const SizedBox(height: AppSpacing.xl),
-              Row(
-                children: [
-                  Expanded(
-                    child: DangerButton(
-                      label: 'Rechazar',
-                      icon: Icons.close,
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _responder(solicitud, aceptar: false);
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: PrimaryButton(
-                      label: 'Aceptar',
-                      icon: Icons.check,
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _responder(solicitud, aceptar: true);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
 
 class _SolicitudCard extends StatelessWidget {
   final SolicitudIncorporacion solicitud;
-  final VoidCallback onVerPerfil;
+  final bool procesando;
+  final VoidCallback onPerfil;
   final VoidCallback onAceptar;
   final VoidCallback onRechazar;
 
   const _SolicitudCard({
     required this.solicitud,
-    required this.onVerPerfil,
+    required this.procesando,
+    required this.onPerfil,
     required this.onAceptar,
     required this.onRechazar,
   });
 
   @override
   Widget build(BuildContext context) {
+    final s = solicitud;
     return AppCard(
+      onTap: onPerfil,
       padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              InitialsAvatar(name: solicitud.nombre, size: 48),
+              InitialsAvatar(name: s.nombreCompleto, size: 44),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(s.nombreCompleto,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.charcoal)),
+                    Text(s.correo ?? '', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                     Text(
-                      solicitud.nombre,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      AppDateUtils.formatDate(solicitud.fechaSolicitud),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textTertiary,
-                      ),
+                      '${s.comunidadNombre ?? ''} · ${AppDateUtils.formatDateTime(s.fechaSolicitud)}',
+                      style: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
                     ),
                   ],
                 ),
               ),
-              StatusChip(
-                estado: solicitud.estado,
-                customText: 'Pendiente',
-                color: AppColors.mustardGold,
-              ),
             ],
           ),
-          if (solicitud.informacionBasica != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              solicitud.informacionBasica!,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.textSecondary,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
           const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Expanded(
-                child: SecondaryButton(
-                  label: 'Ver perfil',
-                  expanded: false,
-                  onPressed: onVerPerfil,
+          if (procesando)
+            const LinearProgressIndicator()
+          else
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: [
+                TextButton.icon(onPressed: onPerfil, icon: const Icon(Icons.person_search_outlined), label: const Text('Ver perfil')),
+                OutlinedButton.icon(
+                  onPressed: onRechazar,
+                  style: OutlinedButton.styleFrom(foregroundColor: AppColors.coralRed),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Rechazar'),
                 ),
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.close),
-                tooltip: 'Rechazar',
-                color: AppColors.coralRed,
-                onPressed: onRechazar,
-              ),
-              const SizedBox(width: AppSpacing.xs),
-              IconButton(
-                icon: const Icon(Icons.check),
-                tooltip: 'Aceptar',
-                color: AppColors.sageGreen,
-                onPressed: onAceptar,
-              ),
-            ],
-          ),
+                ElevatedButton.icon(onPressed: onAceptar, icon: const Icon(Icons.check), label: const Text('Aceptar')),
+              ],
+            ),
         ],
       ),
+    );
+  }
+}
+
+class _PerfilSolicitante extends StatelessWidget {
+  final SolicitudIncorporacion solicitud;
+
+  const _PerfilSolicitante({required this.solicitud});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = solicitud;
+    String valor(String? v) => v == null || v.isEmpty ? 'No indicado' : v;
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(child: InitialsAvatar(name: s.nombreCompleto, size: 64)),
+            const SizedBox(height: AppSpacing.md),
+            Text(s.nombreCompleto,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.charcoal)),
+            const SizedBox(height: AppSpacing.lg),
+            InfoTile(icon: Icons.email_outlined, label: 'Correo', value: valor(s.correo)),
+            InfoTile(icon: Icons.phone_outlined, label: 'Teléfono', value: valor(s.telefono)),
+            InfoTile(icon: Icons.home_outlined, label: 'Dirección', value: valor(s.direccion)),
+            InfoTile(
+              icon: Icons.cake_outlined,
+              label: 'Fecha de nacimiento',
+              value: s.fechaNacimiento == null ? 'No indicada' : AppDateUtils.formatDate(s.fechaNacimiento),
+            ),
+            InfoTile(icon: Icons.location_city_outlined, label: 'Comunidad', value: valor(s.comunidadNombre)),
+            InfoTile(icon: Icons.key_outlined, label: 'Código utilizado', value: valor(s.codigo)),
+            InfoTile(icon: Icons.schedule, label: 'Fecha de solicitud', value: AppDateUtils.formatDateTime(s.fechaSolicitud)),
+            const SizedBox(height: AppSpacing.lg),
+            if (s.pendiente)
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(foregroundColor: AppColors.coralRed),
+                      onPressed: () => Navigator.pop(context, 'rechazar'),
+                      child: const Text('Rechazar'),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, 'aceptar'),
+                      child: const Text('Aceptar'),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RechazoDialog extends StatefulWidget {
+  final String nombre;
+
+  const _RechazoDialog({required this.nombre});
+
+  @override
+  State<_RechazoDialog> createState() => _RechazoDialogState();
+}
+
+class _RechazoDialogState extends State<_RechazoDialog> {
+  final _motivo = TextEditingController();
+
+  @override
+  void dispose() {
+    _motivo.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Rechazar solicitud'),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Se notificará a ${widget.nombre}.'),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              controller: _motivo,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Motivo (opcional)'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: AppColors.coralRed, foregroundColor: Colors.white),
+          onPressed: () => Navigator.pop(context, _motivo.text.trim()),
+          child: const Text('Rechazar'),
+        ),
+      ],
     );
   }
 }

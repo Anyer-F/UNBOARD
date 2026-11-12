@@ -1,5 +1,6 @@
 package com.example.backend.entity;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import jakarta.persistence.Column;
@@ -49,4 +50,13 @@ public class Usuario {
 
     @Column(name = "fcm_token_actualizado")
     private LocalDateTime fcmTokenActualizado;
+
+    @Column(length = 30)
+    private String telefono;
+
+    @Column(length = 255)
+    private String direccion;
+
+    @Column(name = "fecha_nacimiento")
+    private LocalDate fechaNacimiento;
 }

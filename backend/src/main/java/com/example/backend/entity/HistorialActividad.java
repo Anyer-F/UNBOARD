@@ -19,6 +19,11 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * Registro del historial de cambios: quién hizo qué y cuándo.
+ * Cubre actividades, entregas, documentos, expedientes, exportaciones,
+ * solicitudes y módulos (ver {@link EntidadHistorial}).
+ */
 @Entity
 @Table(name = "historial_actividad")
 @Data
@@ -31,19 +36,43 @@ public class HistorialActividad {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    @Builder.Default
+    private EntidadHistorial entidad = EntidadHistorial.ACTIVIDAD;
+
+    @Column(name = "id_entidad")
+    private Long idEntidad;
+
+    /** Texto de referencia (ej. título de la actividad); se conserva aunque se elimine. */
+    @Column(length = 255)
+    private String referencia;
+
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "id_actividad", nullable = false)
+    @JoinColumn(name = "id_actividad")
     private Actividad actividad;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "id_asignacion")
+    private Asignacion asignacion;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "id_apadrinado")
+    private Apadrinado apadrinado;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "id_comunidad")
+    private Comunidad comunidad;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "estado_anterior", length = 30)
     private EstadoActividad estadoAnterior;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "estado_nuevo", nullable = false, length = 30)
+    @Column(name = "estado_nuevo", length = 30)
     private EstadoActividad estadoNuevo;
 
-    @Column(nullable = false, length = 100)
+    @Column(nullable = false, length = 60)
     private String accion;
 
     @Column(columnDefinition = "TEXT")
@@ -60,6 +89,9 @@ public class HistorialActividad {
     public void prePersist() {
         if (this.fechaHora == null) {
             this.fechaHora = LocalDateTime.now();
+        }
+        if (this.entidad == null) {
+            this.entidad = EntidadHistorial.ACTIVIDAD;
         }
     }
 }

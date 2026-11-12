@@ -20,18 +20,20 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.example.backend.config.AccesoDenegadoException;
+import com.example.backend.entity.Actividad;
 import com.example.backend.entity.Apadrinado;
+import com.example.backend.entity.Expediente;
 import com.example.backend.entity.Comunidad;
 import com.example.backend.entity.Coordinador;
 import com.example.backend.entity.Rol;
 import com.example.backend.entity.Usuario;
 import com.example.backend.repository.ActividadRepository;
 import com.example.backend.repository.ApadrinadoRepository;
+import com.example.backend.repository.AsignacionRepository;
 import com.example.backend.repository.CartaRepository;
 import com.example.backend.repository.CoordinadorRepository;
 import com.example.backend.repository.DocumentoRepository;
 import com.example.backend.repository.ExpedienteRepository;
-import com.example.backend.repository.MaterialApoyoRepository;
 import com.example.backend.repository.UsuarioRepository;
 
 /**
@@ -63,7 +65,7 @@ class SeguridadServiceTest {
     private ExpedienteRepository expedienteRepository;
 
     @Mock
-    private MaterialApoyoRepository materialApoyoRepository;
+    private AsignacionRepository asignacionRepository;
 
     @InjectMocks
     private SeguridadService seguridadService;
@@ -94,12 +96,12 @@ class SeguridadServiceTest {
                 .build();
 
         Authentication auth = mock(Authentication.class);
-        when(auth.isAuthenticated()).thenReturn(true);
-        when(auth.getName()).thenReturn(CORREO_CARLOS);
+        lenient().when(auth.isAuthenticated()).thenReturn(true);
+        lenient().when(auth.getName()).thenReturn(CORREO_CARLOS);
         SecurityContextHolder.getContext().setAuthentication(auth);
 
-        when(usuarioRepository.findByCorreo(CORREO_CARLOS)).thenReturn(Optional.of(carlos));
-        when(coordinadorRepository.findByUsuarioId(1L)).thenReturn(Optional.of(coordinadorCarlos));
+        lenient().when(usuarioRepository.findByCorreo(CORREO_CARLOS)).thenReturn(Optional.of(carlos));
+        lenient().when(coordinadorRepository.findByUsuarioId(1L)).thenReturn(Optional.of(coordinadorCarlos));
     }
 
     @AfterEach
@@ -183,5 +185,39 @@ class SeguridadServiceTest {
         when(apadrinadoRepository.findById(100L)).thenReturn(Optional.of(apadrinado));
 
         assertDoesNotThrow(() -> seguridadService.verificarApadrinadoAccesible(100L));
+    }
+
+    @Test
+    void verificarActividadPropia_actividadDeComunidadAsociadaEsPermitida() {
+        Actividad actividad = Actividad.builder().id(7L).titulo("Tarea").comunidad(segunda).build();
+        when(actividadRepository.findById(7L)).thenReturn(Optional.of(actividad));
+
+        assertDoesNotThrow(() -> seguridadService.verificarActividadPropia(7L));
+    }
+
+    @Test
+    void verificarActividadPropia_actividadDeComunidadAjenaEsDenegada() {
+        Comunidad ajena = Comunidad.builder().id(3L).nombre("Ajena").build();
+        Actividad actividad = Actividad.builder().id(7L).titulo("Tarea").comunidad(ajena).build();
+        when(actividadRepository.findById(7L)).thenReturn(Optional.of(actividad));
+
+        assertThrows(AccesoDenegadoException.class, () -> seguridadService.verificarActividadPropia(7L));
+    }
+
+    @Test
+    void apadrinadoNoPuedeAccederAlExpediente() {
+        Usuario maria = Usuario.builder().id(60L).correo("maria@unbound.org")
+                .rol(Rol.builder().id(3L).nombre("Apadrinado").build()).build();
+        Apadrinado propio = Apadrinado.builder().id(200L).usuario(maria).comunidad(principal).build();
+        Authentication auth = mock(Authentication.class);
+        when(auth.isAuthenticated()).thenReturn(true);
+        when(auth.getName()).thenReturn("maria@unbound.org");
+        SecurityContextHolder.getContext().setAuthentication(auth);
+        when(usuarioRepository.findByCorreo("maria@unbound.org")).thenReturn(Optional.of(maria));
+        when(expedienteRepository.findById(5L))
+                .thenReturn(Optional.of(Expediente.builder().id(5L).apadrinado(propio).build()));
+
+        // Ni siquiera su propio expediente: es una función exclusiva del coordinador
+        assertThrows(AccesoDenegadoException.class, () -> seguridadService.verificarExpedienteAccesible(5L));
     }
 }

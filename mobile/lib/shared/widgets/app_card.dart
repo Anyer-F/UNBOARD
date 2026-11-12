@@ -19,6 +19,9 @@ class AppCard extends StatelessWidget {
   final double? elevation;
   final BorderRadius? borderRadius;
 
+  /// Borde propio (ej. para destacar la tarjeta); por defecto uno suave.
+  final BoxBorder? border;
+
   const AppCard({
     super.key,
     required this.child,
@@ -28,6 +31,7 @@ class AppCard extends StatelessWidget {
     this.onTap,
     this.elevation = 0,
     this.borderRadius,
+    this.border,
   });
 
   @override
@@ -39,9 +43,10 @@ class AppCard extends StatelessWidget {
         color: backgroundColor ?? AppColors.cardBg,
         borderRadius: radius,
         boxShadow: elevation! > 0 ? AppShadows.md : null,
-        border: Border.all(
-          color: AppColors.borderLight.withAlpha(102),
-        ),
+        border: border ??
+            Border.all(
+              color: AppColors.borderLight.withAlpha(102),
+            ),
       ),
       child: ClipRRect(
         borderRadius: radius,

@@ -16,6 +16,14 @@ class Documento {
   final int? subidoPorUsuarioId;
   final String? subidoPorNombre;
 
+  /// COORDINADOR (material de apoyo) o APADRINADO (entrega).
+  final String origen;
+
+  /// Estado de la entrega a la que pertenece (PUBLICADO para material).
+  final String? estado;
+  final int? entregaId;
+  final int? version;
+
   Documento({
     required this.id,
     required this.nombreOriginal,
@@ -33,7 +41,21 @@ class Documento {
     this.actividadTitulo,
     this.subidoPorUsuarioId,
     this.subidoPorNombre,
+    this.origen = 'APADRINADO',
+    this.estado,
+    this.entregaId,
+    this.version,
   });
+
+  bool get esDelCoordinador => origen == 'COORDINADOR';
+
+  /// Tamaño legible (KB / MB).
+  String get tamanioTexto {
+    final b = tamanioBytes ?? 0;
+    if (b >= 1024 * 1024) return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
+    if (b >= 1024) return '${(b / 1024).toStringAsFixed(0)} KB';
+    return '$b B';
+  }
 
   bool get isPdf =>
       tipoMime?.toLowerCase().contains('pdf') == true ||
@@ -73,6 +95,10 @@ class Documento {
       actividadTitulo: json['actividadTitulo'],
       subidoPorUsuarioId: json['subidoPorUsuarioId'] != null ? int.tryParse(json['subidoPorUsuarioId'].toString()) : null,
       subidoPorNombre: json['subidoPorNombre'],
+      origen: json['origen'] ?? 'APADRINADO',
+      estado: json['estado'],
+      entregaId: json['entregaId'] != null ? int.tryParse(json['entregaId'].toString()) : null,
+      version: json['version'] != null ? int.tryParse(json['version'].toString()) : null,
     );
   }
 }

@@ -14,9 +14,13 @@ class ProfileHeader extends StatelessWidget {
   final String? rol;
   final VoidCallback? onEditPhoto;
 
+  /// Nombre del que se toman las iniciales (si [nombre] es un saludo).
+  final String? nombreAvatar;
+
   const ProfileHeader({
     super.key,
     required this.nombre,
+    this.nombreAvatar,
     this.correo,
     this.comunidad,
     this.rol,
@@ -36,7 +40,7 @@ class ProfileHeader extends StatelessWidget {
         children: [
           Stack(
             children: [
-              InitialsAvatar(name: nombre, size: 72),
+              InitialsAvatar(name: nombreAvatar ?? nombre, size: 72),
               if (onEditPhoto != null)
                 Positioned(
                   right: 0,

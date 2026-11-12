@@ -15,4 +15,11 @@ public interface DocumentoRepository extends JpaRepository<Documento, Long> {
     List<Documento> findByExpedienteApadrinadoId(Long apadrinadoId);
     List<Documento> findByExpedienteApadrinadoIdAndTipoDocumento(Long apadrinadoId, TipoDocumento tipoDocumento);
     List<Documento> findByActividadId(Long actividadId);
+
+    List<Documento> findByActividadIdAndOrigen(Long actividadId, com.example.backend.entity.OrigenDocumento origen);
+
+    List<Documento> findByEntregaId(Long entregaId);
+
+    /** Cuántos documentos apuntan al mismo archivo (las versiones reutilizan archivos). */
+    long countByNombreAlmacenado(String nombreAlmacenado);
 }

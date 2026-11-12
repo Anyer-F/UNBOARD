@@ -2,6 +2,7 @@ package com.example.backend.dto;
 
 import java.time.LocalDateTime;
 
+import com.example.backend.entity.OrigenDocumento;
 import com.example.backend.entity.TipoDocumento;
 
 import lombok.AllArgsConstructor;
@@ -14,6 +15,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class DocumentoResponseDTO {
+
     private Long id;
     private String nombreOriginal;
     private String nombreAlmacenado;
@@ -23,11 +25,16 @@ public class DocumentoResponseDTO {
     private LocalDateTime fechaSubida;
     private TipoDocumento tipoDocumento;
     private String descripcion;
+    private OrigenDocumento origen;
+    /** Estado de la entrega a la que pertenece (o PUBLICADO para material del coordinador). */
+    private String estado;
     private Long expedienteId;
     private Long apadrinadoId;
     private String apadrinadoNombre;
     private Long actividadId;
     private String actividadTitulo;
+    private Long entregaId;
+    private Integer version;
     private Long subidoPorUsuarioId;
     private String subidoPorNombre;
 }

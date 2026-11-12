@@ -55,19 +55,29 @@ public class UsuarioController {
                 "La creación de usuarios es una función administrativa.");
     }
 
+    /** Perfil del usuario autenticado. */
+    @GetMapping("/me")
+    public ResponseEntity<UsuarioResponseDTO> miPerfil() {
+        return ResponseEntity.ok(usuarioService.obtenerPorId(seguridadService.usuarioActual().getId()));
+    }
+
+    /** Actualiza la información permitida del perfil propio. */
+    @PutMapping("/me")
+    public ResponseEntity<UsuarioResponseDTO> actualizarMiPerfil(
+            @RequestBody com.example.backend.dto.PerfilRequestDTO request) {
+        return ResponseEntity.ok(usuarioService.actualizarPerfil(seguridadService.usuarioActual().getId(), request));
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<UsuarioResponseDTO> actualizar(
             @PathVariable Long id,
-            @RequestBody UsuarioRequestDTO request) {
-        // FASE B: solo el propio usuario, y solo puede actualizar su nombre
-        // (correo, contraseña y rol se gestionan por otros medios)
+            @RequestBody com.example.backend.dto.PerfilRequestDTO request) {
+        // Solo el propio usuario; correo, contraseña y rol se gestionan por otros medios
         if (!seguridadService.usuarioActual().getId().equals(id)) {
             throw new com.example.backend.config.AccesoDenegadoException(
                     "No puede modificar el perfil de otro usuario.");
         }
-        UsuarioRequestDTO sanitizado = new UsuarioRequestDTO();
-        sanitizado.setNombre(request.getNombre());
-        return ResponseEntity.ok(usuarioService.actualizarUsuario(id, sanitizado));
+        return ResponseEntity.ok(usuarioService.actualizarPerfil(id, request));
     }
 
     @DeleteMapping("/{id}")

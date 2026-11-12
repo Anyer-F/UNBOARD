@@ -2,6 +2,8 @@ package com.example.backend.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -31,4 +33,10 @@ public class Comunidad {
 
     @Column(length = 150)
     private String departamento;
+
+    /** Cómo se incorporan los apadrinados con el código de la comunidad. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "modo_incorporacion", nullable = false, length = 20)
+    @Builder.Default
+    private ModoIncorporacion modoIncorporacion = ModoIncorporacion.SOLICITUD;
 }

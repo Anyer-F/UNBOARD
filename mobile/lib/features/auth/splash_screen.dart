@@ -40,14 +40,26 @@ class _SplashScreenState extends State<SplashScreen>
     Future.delayed(const Duration(milliseconds: 1400), _navegar);
   }
 
-  void _navegar() {
+  Future<void> _navegar() async {
     if (!mounted) return;
     final auth = Provider.of<AuthService>(context, listen: false);
 
-    if (!auth.isAuthenticated) {
+    // Un apadrinado sin comunidad pudo haber sido aceptado mientras
+    // tanto: se vuelve a consultar su perfil.
+    if (auth.isAuthenticated && auth.currentUser!.sinComunidad) {
+      try {
+        await auth.refrescarPerfil();
+      } catch (_) {}
+      if (!mounted) return;
+    }
+
+    final user = auth.currentUser;
+    if (user == null) {
       Navigator.pushReplacementNamed(context, '/login');
-    } else if (auth.currentUser!.isCoordinador) {
+    } else if (user.isCoordinador) {
       Navigator.pushReplacementNamed(context, '/coordinador/home');
+    } else if (user.sinComunidad) {
+      Navigator.pushReplacementNamed(context, '/join-community');
     } else {
       Navigator.pushReplacementNamed(context, '/apadrinado/home');
     }
@@ -93,7 +105,7 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
                 const SizedBox(height: 24),
                 const Text(
-                  'UNBOUND DMS',
+                  'UNBOARD',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 26,

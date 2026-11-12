@@ -1,688 +1,722 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import '../../core/utils/file_export.dart';
+
+import '../../core/constants/app_radius.dart';
+import '../../core/constants/app_spacing.dart';
+import '../../core/network/api_client.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/utils/date_utils.dart';
+import '../../core/utils/responsive.dart';
+import '../../services/documento_service.dart';
+import '../../services/expediente_service.dart';
+import '../../shared/models/carta.dart';
 import '../../shared/models/documento.dart';
 import '../../shared/models/expediente.dart';
 import '../../shared/models/historial_actividad.dart';
-import '../../services/actividad_service.dart';
-import '../../services/expediente_service.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../shared/widgets/actividad_widgets.dart';
+import '../../shared/widgets/app_card.dart';
+import '../../shared/widgets/cards.dart';
+import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirmation_dialog.dart';
+import '../../shared/widgets/states.dart';
 import '../actividades/revisar_entrega_screen.dart';
 import '../documentos/documento_viewer_modal.dart';
+import '../historial/historial_screen.dart';
 
+/// Expediente digital de un apadrinado (función exclusiva del
+/// coordinador): datos personales, actividades, documentos, fotografías,
+/// cartas, observaciones e historial. Desde aquí se generan el
+/// expediente PDF y la carpeta ZIP por intervalo de tiempo.
 class ExpedienteDetalleScreen extends StatefulWidget {
-  final int? expedienteId;
-  final int? apadrinadoId;
+  final int apadrinadoId;
 
-  const ExpedienteDetalleScreen({
-    super.key,
-    this.expedienteId,
-    this.apadrinadoId,
-  });
+  const ExpedienteDetalleScreen({super.key, required this.apadrinadoId});
 
   @override
   State<ExpedienteDetalleScreen> createState() => _ExpedienteDetalleScreenState();
 }
 
-class _ExpedienteDetalleScreenState extends State<ExpedienteDetalleScreen> with SingleTickerProviderStateMixin {
-  final _expedienteService = ExpedienteService();
-  final _actividadService = ActividadService();
-
-  late TabController _tabController;
+class _ExpedienteDetalleScreenState extends State<ExpedienteDetalleScreen> {
+  final _servicio = ExpedienteService();
 
   Expediente? _expediente;
-  List<HistorialActividad> _historial = [];
+  List<HistorialActividad>? _historial;
   bool _isLoading = true;
   String? _error;
-  bool _isDownloadingPdf = false;
-  bool _isDownloadingZip = false;
-  DateTimeRange? _periodo;
 
-  String _filtroTipo = 'TODOS';
-  final _searchDocController = TextEditingController();
+  DateTimeRange? _periodo;
+  String? _exportando;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    _cargarExpediente();
+    _cargar();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    _searchDocController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _cargarExpediente() async {
+  Future<void> _cargar() async {
     setState(() {
-      _isLoading = true;
+      _isLoading = _expediente == null;
       _error = null;
     });
-
     try {
-      Expediente exp;
-      if (widget.expedienteId != null) {
-        exp = await _expedienteService.obtenerPorId(widget.expedienteId!);
-      } else if (widget.apadrinadoId != null) {
-        exp = await _expedienteService.obtenerPorApadrinadoId(widget.apadrinadoId!);
-      } else {
-        throw Exception('No se especificó un identificador de expediente válido.');
+      final e = await _servicio.obtenerPorApadrinado(widget.apadrinadoId);
+      if (mounted) {
+        setState(() {
+          _expediente = e;
+          _isLoading = false;
+          _historial = null;
+        });
       }
-
-      // Cargar historial del apadrinado
-      List<HistorialActividad> hist = [];
-      final apadId = exp.apadrinado?.id ?? widget.apadrinadoId;
-      if (apadId != null) {
-        try {
-          hist = await _actividadService.obtenerHistorialPorApadrinado(apadId);
-        } catch (_) {}
-      }
-
-      setState(() {
-        _expediente = exp;
-        _historial = hist;
-        _isLoading = false;
-      });
+      _cargarHistorial();
     } catch (e) {
-      setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = mensajeDeError(e);
+        });
+      }
     }
   }
 
-  /// Elige el período del expediente a exportar. Sin período se
-  /// exporta el expediente completo.
+  Future<void> _cargarHistorial() async {
+    try {
+      final h = await _servicio.historial(widget.apadrinadoId);
+      if (mounted) setState(() => _historial = h);
+    } catch (_) {
+      if (mounted) setState(() => _historial = const []);
+    }
+  }
+
+  void _aviso(String texto, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(texto), backgroundColor: error ? AppColors.coralRed : null),
+    );
+  }
+
+  // ==================== EXPORTACIÓN ====================
+
   Future<void> _elegirPeriodo() async {
-    final ahora = DateTime.now();
-    final rango = await showDateRangePicker(
+    final hoy = DateTime.now();
+    final r = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2020),
-      lastDate: DateTime(ahora.year, ahora.month, ahora.day),
-      initialDateRange: _periodo,
-      helpText: 'Período del expediente',
+      lastDate: DateTime(hoy.year + 1, 12, 31),
+      initialDateRange: _periodo ?? DateTimeRange(start: DateTime(hoy.year, hoy.month - 3, hoy.day), end: hoy),
+      helpText: 'Intervalo del expediente',
       saveText: 'Aplicar',
-      cancelText: 'Cancelar',
-      fieldStartLabelText: 'Desde',
-      fieldEndLabelText: 'Hasta',
     );
-    if (rango != null && mounted) setState(() => _periodo = rango);
+    if (r != null) setState(() => _periodo = r);
   }
 
-  String get _textoPeriodo {
-    if (_periodo == null) return 'Todo el expediente';
-    String f(DateTime d) =>
-        '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
-    return '${f(_periodo!.start)} - ${f(_periodo!.end)}';
-  }
-
-  Future<void> _exportar({required bool zip}) async {
-    if (_expediente == null) return;
-    setState(() => zip ? _isDownloadingZip = true : _isDownloadingPdf = true);
-
+  Future<void> _exportar(bool pdf) async {
+    setState(() => _exportando = pdf ? 'pdf' : 'zip');
     try {
-      final id = _expediente!.id;
-      final bytes = zip
-          ? await _expedienteService.descargarZip(id,
-              desde: _periodo?.start, hasta: _periodo?.end)
-          : await _expedienteService.descargarPdf(id,
-              desde: _periodo?.start, hasta: _periodo?.end);
-
-      final mensaje = await guardarYAbrirArchivo(
-        bytes,
-        nombre: zip ? 'Expediente_Organizado_$id.zip' : 'Expediente_$id.pdf',
-        mimeType: zip ? 'application/zip' : 'application/pdf',
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(mensaje),
-          backgroundColor: zip ? AppColors.tealCyan : AppColors.sageGreen,
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      final e = pdf
+          ? await _servicio.exportarPdf(widget.apadrinadoId, desde: _periodo?.start, hasta: _periodo?.end)
+          : await _servicio.exportarZip(widget.apadrinadoId, desde: _periodo?.start, hasta: _periodo?.end);
+      final mensaje = await _servicio.descargarYAbrir(e);
+      if (mounted) _aviso(mensaje);
+      _cargarHistorial();
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Error al generar el ${zip ? 'ZIP' : 'PDF'}: ${e.toString().replaceAll('Exception: ', '')}'),
-          backgroundColor: AppColors.coralRed,
-        ),
-      );
+      if (mounted) _aviso(mensajeDeError(e), error: true);
     } finally {
+      if (mounted) setState(() => _exportando = null);
+    }
+  }
+
+  // ==================== OBSERVACIONES ====================
+
+  Future<void> _agregarObservacion() async {
+    final controller = TextEditingController();
+    final texto = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Nueva observación'),
+        content: SizedBox(
+          width: 420,
+          child: TextField(
+            controller: controller,
+            maxLines: 4,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: 'Escriba la observación para el expediente'),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (texto == null || texto.isEmpty || !mounted) return;
+    try {
+      await _servicio.agregarObservacion(widget.apadrinadoId, texto);
       if (mounted) {
-        setState(() => zip ? _isDownloadingZip = false : _isDownloadingPdf = false);
+        _aviso('Observación registrada');
+        _cargar();
       }
+    } catch (e) {
+      if (mounted) _aviso(mensajeDeError(e), error: true);
     }
   }
 
-  List<Documento> get _documentosFiltrados {
-    if (_expediente == null) return [];
-    var docs = _expediente!.documentos;
-
-    if (_filtroTipo != 'TODOS') {
-      docs = docs.where((d) => d.tipoDocumento.toUpperCase() == _filtroTipo).toList();
+  Future<void> _eliminarObservacion(Observacion o) async {
+    final ok = await showConfirmationDialog(
+      context,
+      title: 'Eliminar observación',
+      message: '¿Eliminar esta observación del expediente?',
+      confirmLabel: 'Eliminar',
+      isDanger: true,
+    );
+    if (!ok || !mounted) return;
+    try {
+      await _servicio.eliminarObservacion(o.id);
+      if (mounted) _cargar();
+    } catch (e) {
+      if (mounted) _aviso(mensajeDeError(e), error: true);
     }
-
-    final query = _searchDocController.text.trim().toLowerCase();
-    if (query.isNotEmpty) {
-      docs = docs.where((d) {
-        final nombre = d.nombreOriginal.toLowerCase();
-        final desc = d.descripcion?.toLowerCase() ?? '';
-        final act = d.actividadTitulo?.toLowerCase() ?? '';
-        return nombre.contains(query) || desc.contains(query) || act.contains(query);
-      }).toList();
-    }
-
-    return docs;
   }
+
+  Future<void> _abrirRevision(int asignacionId) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => RevisarEntregaScreen(asignacionId: asignacionId)),
+    );
+    if (mounted) _cargar();
+  }
+
+  // ==================== UI ====================
 
   @override
   Widget build(BuildContext context) {
+    final e = _expediente;
+    final nombre = e?.apadrinado?.nombreCompleto;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Expediente Digital'),
-      ),
+      appBar: AppBar(title: Text(nombre != null && nombre.isNotEmpty ? nombre : 'Expediente')),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline, size: 60, color: AppColors.coralRed),
-                      const SizedBox(height: 12),
-                      Text(_error!, style: const TextStyle(fontSize: 15)),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _cargarExpediente,
-                        child: const Text('Reintentar'),
+          ? const LoadingState(message: 'Cargando expediente...')
+          : e == null
+              ? ErrorState(title: 'No se pudo cargar el expediente', message: _error, onRetry: _cargar)
+              : DefaultTabController(
+                  length: 6,
+                  child: NestedScrollView(
+                    headerSliverBuilder: (context, _) => [
+                      SliverToBoxAdapter(
+                        child: ResponsiveContent(
+                          maxWidth: 1000,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: Responsive.isLarge(context) ? 24 : 16,
+                            vertical: AppSpacing.lg,
+                          ),
+                          child: _cabecera(e),
+                        ),
                       ),
+                      SliverPersistentHeader(pinned: true, delegate: _TabsDelegate(_tabs(e))),
                     ],
-                  ),
-                )
-              : _expediente == null
-                  ? const Center(child: Text('Expediente no disponible.'))
-                  : Column(
+                    body: TabBarView(
                       children: [
-                        // Tarjeta de Cabecera del Beneficiario
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(18),
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            border: Border(bottom: BorderSide(color: AppColors.borderLight)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 28,
-                                    backgroundColor: AppColors.darkNavy,
-                                    child: const Icon(Icons.person, size: 34, color: Colors.white),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          _expediente!.apadrinado?.nombre ?? 'Beneficiario',
-                                          style: const TextStyle(
-                                            fontSize: 17,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.darkNavy,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 3),
-                                        Text(
-                                          'Comunidad: ${_expediente!.apadrinado?.comunidadNombre ?? "No asignada"}',
-                                          style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-                                        ),
-                                        Text(
-                                          'Coordinador: ${_expediente!.apadrinado?.coordinadorNombre ?? "No asignado"}',
-                                          style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.sageGreen.withAlpha(25),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: AppColors.sageGreen),
-                                    ),
-                                    child: const Text(
-                                      'ACTIVO',
-                                      style: TextStyle(
-                                        color: AppColors.sageGreen,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Período del expediente a exportar
-                              Material(
-                                color: AppColors.darkNavy.withAlpha(10),
-                                borderRadius: BorderRadius.circular(10),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(10),
-                                  onTap: _elegirPeriodo,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.date_range, size: 18, color: AppColors.darkNavy),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            'Período: $_textoPeriodo',
-                                            style: const TextStyle(fontSize: 13, color: AppColors.darkNavy),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        if (_periodo != null)
-                                          IconButton(
-                                            tooltip: 'Exportar todo el expediente',
-                                            icon: const Icon(Icons.close, size: 18),
-                                            visualDensity: VisualDensity.compact,
-                                            onPressed: () => setState(() => _periodo = null),
-                                          )
-                                        else
-                                          const Padding(
-                                            padding: EdgeInsets.symmetric(vertical: 10),
-                                            child: Text(
-                                              'Cambiar',
-                                              style: TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w600,
-                                                color: AppColors.tealCyan,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-
-                              // Botones de Exportación Oficial
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: AppColors.darkNavy,
-                                        side: const BorderSide(color: AppColors.darkNavy, width: 1.5),
-                                        padding: const EdgeInsets.symmetric(vertical: 10),
-                                      ),
-                                      onPressed: _isDownloadingPdf ? null : () => _exportar(zip: false),
-                                      icon: _isDownloadingPdf
-                                          ? const SizedBox(
-                                              height: 16,
-                                              width: 16,
-                                              child: CircularProgressIndicator(strokeWidth: 2),
-                                            )
-                                          : const Icon(Icons.picture_as_pdf, size: 18),
-                                      label: const Text('Exportar PDF', style: TextStyle(fontSize: 13)),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppColors.tealCyan,
-                                        padding: const EdgeInsets.symmetric(vertical: 10),
-                                      ),
-                                      onPressed: _isDownloadingZip ? null : () => _exportar(zip: true),
-                                      icon: _isDownloadingZip
-                                          ? const SizedBox(
-                                              height: 16,
-                                              width: 16,
-                                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                            )
-                                          : const Icon(Icons.archive, size: 18),
-                                      label: const Text('Descargar ZIP', style: TextStyle(fontSize: 13)),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // Barra de Pestañas (3 Pestañas: Actividades, Documentos, Bitácora)
-                        Container(
-                          color: Colors.white,
-                          child: TabBar(
-                            controller: _tabController,
-                            tabAlignment: TabAlignment.fill,
-                            indicatorColor: AppColors.darkNavy,
-                            labelColor: AppColors.darkNavy,
-                            unselectedLabelColor: Colors.grey,
-                            labelStyle: const TextStyle(fontWeight: FontWeight.bold),
-                            tabs: [
-                              Tab(text: 'Actividades (${_expediente!.actividades.length})'),
-                              Tab(text: 'Documentos (${_expediente!.documentos.length})'),
-                              Tab(text: 'Bitácora (${_historial.length})'),
-                            ],
-                          ),
-                        ),
-
-                        // Contenido de Pestañas
-                        Expanded(
-                          child: TabBarView(
-                            controller: _tabController,
-                            children: [
-                              // Pestaña 1: Actividades
-                              _buildActividadesTab(),
-
-                              // Pestaña 2: Documentos con Filtro
-                              _buildDocumentosTab(),
-
-                              // Pestaña 3: Bitácora y Trazabilidad
-                              _buildBitacoraTab(),
-                            ],
-                          ),
-                        ),
+                        _tabActividades(e),
+                        _tabDocumentos(e),
+                        _tabFotografias(e),
+                        _tabCartas(e),
+                        _tabObservaciones(e),
+                        _historial == null
+                            ? const LoadingState(message: 'Cargando historial...')
+                            : HistorialLista(registros: _historial!),
                       ],
                     ),
-    );
-  }
-
-  Widget _buildActividadesTab() {
-    if (_expediente!.actividades.isEmpty) {
-      return const Center(child: Text('No hay actividades en este expediente.'));
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: _expediente!.actividades.length,
-      itemBuilder: (context, index) {
-        final act = _expediente!.actividades[index];
-        final color = AppTheme.getEstadoColor(act.estado);
-        return Card(
-          child: ListTile(
-            title: Text(act.titulo, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Text(act.descripcion ?? 'Sin descripción', maxLines: 2, overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 4),
-                Text('Fecha límite: ${act.fechaLimite ?? "N/A"}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              ],
-            ),
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: color.withAlpha(25),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: color),
-              ),
-              child: Text(
-                AppTheme.getEstadoTexto(act.estado),
-                style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold),
-              ),
-            ),
-            onTap: () async {
-              final updated = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => RevisarEntregaScreen(actividad: act)),
-              );
-              if (updated == true) _cargarExpediente();
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDocumentosTab() {
-    final docs = _documentosFiltrados;
-
-    return Column(
-      children: [
-        // Buscador y Selector de Filtros
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-          child: Column(
-            children: [
-              TextField(
-                controller: _searchDocController,
-                decoration: InputDecoration(
-                  hintText: 'Buscar por nombre o actividad...',
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  suffixIcon: _searchDocController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
-                          onPressed: () {
-                            _searchDocController.clear();
-                            setState(() {});
-                          },
-                        )
-                      : null,
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
                 ),
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
+    );
+  }
+
+  TabBar _tabs(Expediente e) => TabBar(
+        isScrollable: true,
+        tabAlignment: TabAlignment.center,
+        labelColor: AppColors.darkNavy,
+        unselectedLabelColor: AppColors.textSecondary,
+        indicatorColor: AppColors.tealCyan,
+        tabs: [
+          Tab(text: 'Actividades (${e.totalActividades})'),
+          Tab(text: 'Documentos (${e.totalDocumentos})'),
+          Tab(text: 'Fotografías (${e.fotografias.length})'),
+          Tab(text: 'Cartas (${e.cartas.length})'),
+          Tab(text: 'Observaciones (${e.observaciones.length})'),
+          const Tab(text: 'Historial'),
+        ],
+      );
+
+  Widget _cabecera(Expediente e) {
+    final a = e.apadrinado;
+    String v(String? s) => s == null || s.isEmpty ? 'No indicado' : s;
+    final datos = Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(color: AppColors.darkNavy, borderRadius: BorderRadius.circular(AppRadius.xl)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              InitialsAvatar(name: a?.nombreCompleto ?? 'A', size: 52),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildChipFiltro('TODOS', 'Todos (${_expediente!.documentos.length})'),
-                    const SizedBox(width: 6),
-                    _buildChipFiltro('CARTA', 'Cartas'),
-                    const SizedBox(width: 6),
-                    _buildChipFiltro('FOTOGRAFIA', 'Fotos'),
-                    const SizedBox(width: 6),
-                    _buildChipFiltro('FORMULARIO', 'Formularios'),
-                    const SizedBox(width: 6),
-                    _buildChipFiltro('EVIDENCIA', 'Evidencias'),
+                    Text(a?.nombreCompleto ?? 'Apadrinado',
+                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                    Text('Expediente ${e.codigo ?? ''}', style: TextStyle(color: Colors.white.withAlpha(190), fontSize: 12)),
                   ],
                 ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: AppSpacing.lg),
+          Wrap(
+            spacing: AppSpacing.xl,
+            runSpacing: AppSpacing.md,
+            children: [
+              _DatoBlanco(Icons.email_outlined, v(a?.correo)),
+              _DatoBlanco(Icons.phone_outlined, v(a?.telefono)),
+              _DatoBlanco(Icons.home_outlined, v(a?.direccion)),
+              _DatoBlanco(Icons.cake_outlined,
+                  a?.fechaNacimiento == null ? 'No indicada' : AppDateUtils.formatDate(a!.fechaNacimiento)),
+              _DatoBlanco(Icons.location_city_outlined, v(a?.comunidadNombre)),
+              _DatoBlanco(Icons.supervisor_account_outlined, 'Coordinador: ${v(a?.coordinadorNombre)}'),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Wrap(
+            spacing: AppSpacing.xl,
+            runSpacing: AppSpacing.sm,
+            children: [
+              _Contador('${e.totalActividades}', 'Actividades'),
+              _Contador('${e.totalAprobadas}', 'Aprobadas'),
+              _Contador('${e.totalDocumentos}', 'Documentos'),
+              _Contador('${e.fotografias.length}', 'Fotografías'),
+              _Contador('${e.cartas.length}', 'Cartas'),
+            ],
+          ),
+        ],
+      ),
+    );
 
-        // Lista de Documentos
-        Expanded(
-          child: docs.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Text(
-                      _expediente!.documentos.isEmpty
-                          ? 'No hay documentos subidos en este expediente.'
-                          : 'No se encontraron documentos con el filtro aplicado.',
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    final doc = docs[index];
-                    return Card(
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: doc.isImage
-                              ? AppColors.coralRed.withAlpha(25)
-                              : doc.isCarta
-                                  ? Colors.amber.withAlpha(35)
-                                  : AppColors.tealCyan.withAlpha(25),
-                          child: Icon(
-                            doc.isImage
-                                ? Icons.image
-                                : doc.isCarta
-                                    ? Icons.mail
-                                    : Icons.picture_as_pdf,
-                            color: doc.isImage
-                                ? AppColors.coralRed
-                                : doc.isCarta
-                                    ? Colors.amber.shade900
-                                    : AppColors.tealCyan,
-                          ),
-                        ),
-                        title: Text(
-                          doc.nombreOriginal,
-                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${doc.tipoDocumento} • ${(doc.tamanioBytes != null ? (doc.tamanioBytes! / 1024).toStringAsFixed(1) : 0)} KB',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            if (doc.actividadTitulo != null)
-                              Text(
-                                'Actividad: ${doc.actividadTitulo}',
-                                style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                              ),
-                          ],
-                        ),
-                        trailing: const Icon(Icons.visibility_outlined, color: AppColors.darkNavy),
-                        onTap: () {
-                          DocumentoViewerModal.mostrar(context, doc);
-                        },
-                      ),
-                    );
-                  },
+    final exportar = AppCard(
+      margin: EdgeInsets.zero,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Exportar expediente',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.charcoal)),
+          const SizedBox(height: AppSpacing.xs),
+          const Text(
+            'El intervalo se aplica a la fecha de asignación de las actividades. '
+            'El ZIP incluye solo las entregas aprobadas.',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          OutlinedButton.icon(
+            onPressed: _elegirPeriodo,
+            icon: const Icon(Icons.date_range),
+            label: Text(_periodo == null
+                ? 'Todo el historial'
+                : '${AppDateUtils.formatShort(_periodo!.start.toIso8601String())} – '
+                    '${AppDateUtils.formatShort(_periodo!.end.toIso8601String())}'),
+          ),
+          if (_periodo != null)
+            TextButton(onPressed: () => setState(() => _periodo = null), child: const Text('Usar todo el historial')),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _exportando != null ? null : () => _exportar(true),
+                  icon: _exportando == 'pdf' ? const _Cargando() : const Icon(Icons.picture_as_pdf_outlined),
+                  label: const Text('Expediente PDF'),
                 ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _exportando != null ? null : () => _exportar(false),
+                  icon: _exportando == 'zip' ? const _Cargando() : const Icon(Icons.folder_zip_outlined),
+                  label: const Text('Carpeta ZIP'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 840) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 3, child: datos),
+              const SizedBox(width: AppSpacing.lg),
+              Expanded(flex: 2, child: exportar),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [datos, const SizedBox(height: AppSpacing.md), exportar],
+        );
+      },
+    );
+  }
+
+  /// Contenido de una pestaña centrado y con ancho limitado.
+  Widget _lista(List<Widget> hijos, {Widget? encabezado}) {
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+      children: [
+        ResponsiveContent(
+          maxWidth: 900,
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [if (encabezado != null) encabezado, ...hijos],
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildChipFiltro(String tipo, String label) {
-    final selected = _filtroTipo == tipo;
-    return ChoiceChip(
-      label: Text(label, style: TextStyle(fontSize: 12, fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
-      selected: selected,
-      selectedColor: AppColors.darkNavy,
-      labelStyle: TextStyle(color: selected ? Colors.white : AppColors.charcoal),
-      onSelected: (_) => setState(() => _filtroTipo = tipo),
-    );
+  Widget _tabActividades(Expediente e) {
+    if (e.actividades.isEmpty) {
+      return const EmptyState(icon: Icons.assignment_outlined, title: 'Sin actividades asignadas');
+    }
+    return _lista([
+      for (final s in e.actividades)
+        AsignacionCard(
+          asignacion: s,
+          onTap: s.actividad?.esTarea == true ? () => _abrirRevision(s.id) : null,
+        ),
+    ]);
   }
 
-  Widget _buildBitacoraTab() {
-    if (_historial.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24.0),
-          child: Text(
-            'No hay registros de cambios en la bitácora de este apadrinado.',
-            style: TextStyle(color: Colors.grey),
+  Widget _tabDocumentos(Expediente e) => _DocumentosTab(documentos: e.documentos, lista: _lista);
+
+  Widget _tabFotografias(Expediente e) {
+    if (e.fotografias.isEmpty) {
+      return const EmptyState(icon: Icons.photo_library_outlined, title: 'Sin fotografías');
+    }
+    return LayoutBuilder(builder: (context, c) {
+      final columnas = c.maxWidth >= 900 ? 5 : (c.maxWidth >= 600 ? 4 : 2);
+      return Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000),
+          child: GridView.builder(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columnas,
+              mainAxisSpacing: AppSpacing.md,
+              crossAxisSpacing: AppSpacing.md,
+              childAspectRatio: 0.85,
+            ),
+            itemCount: e.fotografias.length,
+            itemBuilder: (_, i) => _Miniatura(documento: e.fotografias[i]),
           ),
         ),
       );
+    });
+  }
+
+  Widget _tabCartas(Expediente e) {
+    if (e.cartas.isEmpty) {
+      return const EmptyState(icon: Icons.mail_outline, title: 'Sin cartas');
     }
+    return _lista([for (final c in e.cartas) _CartaTile(carta: c)]);
+  }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(14),
-      itemCount: _historial.length,
-      itemBuilder: (context, index) {
-        final h = _historial[index];
-        final color = AppTheme.getEstadoColor(h.estadoNuevo);
-        final fechaStr = h.fechaHora != null
-            ? h.fechaHora!.replaceFirst('T', ' ').substring(0, h.fechaHora!.length >= 16 ? 16 : h.fechaHora!.length)
-            : '';
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: color.withAlpha(30),
-                  child: Icon(
-                    h.accion.contains('APROB')
-                        ? Icons.check
-                        : h.accion.contains('CORREC')
-                            ? Icons.replay
-                            : h.accion.contains('ENTREGA')
-                                ? Icons.file_upload
-                                : Icons.flag,
-                    size: 16,
-                    color: color,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              h.accion,
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
-                            ),
-                          ),
-                          Text(fechaStr, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                        ],
-                      ),
-                      if (h.actividadTitulo != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2.0),
-                          child: Text(
-                            'Actividad: ${h.actividadTitulo}',
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.darkNavy),
-                          ),
-                        ),
-                      if (h.modificadoPorNombre != null)
+  Widget _tabObservaciones(Expediente e) {
+    return _lista(
+      [
+        if (e.observaciones.isEmpty)
+          const EmptyState(icon: Icons.sticky_note_2_outlined, title: 'Sin observaciones')
+        else
+          for (final o in e.observaciones)
+            AppCard(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.sticky_note_2_outlined, color: AppColors.mustardGold),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(o.texto, style: const TextStyle(color: AppColors.charcoal)),
+                        const SizedBox(height: AppSpacing.xs),
                         Text(
-                          'Responsable: ${h.modificadoPorNombre} (${h.modificadoPorRol ?? "Usuario"})',
-                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                          [
+                            if (o.actividadTitulo != null) o.actividadTitulo!,
+                            o.autorNombre ?? '',
+                            AppDateUtils.formatDateTime(o.fecha),
+                          ].where((s) => s.isNotEmpty).join(' · '),
+                          style: const TextStyle(fontSize: 11, color: AppColors.textTertiary),
                         ),
-                      if (h.observaciones != null && h.observaciones!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4.0),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              h.observaciones!,
-                              style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
-                            ),
-                          ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  IconButton(
+                    tooltip: 'Eliminar',
+                    icon: const Icon(Icons.delete_outline, color: AppColors.coralRed, size: 20),
+                    onPressed: () => _eliminarObservacion(o),
+                  ),
+                ],
+              ),
             ),
+      ],
+      encabezado: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: ElevatedButton.icon(
+            onPressed: _agregarObservacion,
+            icon: const Icon(Icons.add),
+            label: const Text('Agregar observación'),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
+}
+
+class _DocumentosTab extends StatefulWidget {
+  final List<Documento> documentos;
+  final Widget Function(List<Widget> hijos, {Widget? encabezado}) lista;
+
+  const _DocumentosTab({required this.documentos, required this.lista});
+
+  @override
+  State<_DocumentosTab> createState() => _DocumentosTabState();
+}
+
+class _DocumentosTabState extends State<_DocumentosTab> {
+  String? _tipo;
+
+  static const _etiquetas = {
+    'DOCUMENTO': 'Documentos',
+    'EVIDENCIA': 'Evidencias',
+    'FORMULARIO': 'Formularios',
+    'CARTA': 'Cartas',
+    'OTRO': 'Otros',
+  };
+
+  Future<void> _descargar(Documento d) async {
+    try {
+      final msg = await DocumentoService().descargarYAbrir(d);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(mensajeDeError(e)), backgroundColor: AppColors.coralRed),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.documentos.isEmpty) {
+      return const EmptyState(icon: Icons.folder_open_outlined, title: 'Sin documentos');
+    }
+    final tipos = widget.documentos.map((d) => d.tipoDocumento).toSet();
+    final visibles = widget.documentos.where((d) => _tipo == null || d.tipoDocumento == _tipo).toList();
+    return widget.lista(
+      [
+        for (final d in visibles)
+          DocumentCard(
+            documento: d,
+            onTap: () => DocumentoViewerModal.mostrar(context, d),
+            onDownload: () => _descargar(d),
+          ),
+      ],
+      encabezado: tipos.length < 2
+          ? null
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.sm),
+              child: Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  FilterChipWidget(label: 'Todos', selected: _tipo == null, onSelected: () => setState(() => _tipo = null)),
+                  for (final t in tipos)
+                    FilterChipWidget(
+                      label: _etiquetas[t] ?? t,
+                      selected: _tipo == t,
+                      onSelected: () => setState(() => _tipo = t),
+                    ),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+class _Miniatura extends StatefulWidget {
+  final Documento documento;
+
+  const _Miniatura({required this.documento});
+
+  @override
+  State<_Miniatura> createState() => _MiniaturaState();
+}
+
+class _MiniaturaState extends State<_Miniatura> {
+  static final Map<int, Uint8List> _cache = {};
+  late Future<Uint8List> _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    final id = widget.documento.id;
+    _bytes = _cache.containsKey(id)
+        ? Future.value(_cache[id])
+        : DocumentoService().descargar(widget.documento).then((b) => _cache[id] = b);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.documento;
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      onTap: () => DocumentoViewerModal.mostrar(context, d),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              child: Container(
+                color: AppColors.surfaceVariant,
+                child: FutureBuilder<Uint8List>(
+                  future: _bytes,
+                  builder: (_, snap) {
+                    if (snap.hasData) {
+                      return Image.memory(snap.data!, fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined));
+                    }
+                    if (snap.hasError) return const Icon(Icons.broken_image_outlined, color: AppColors.textTertiary);
+                    return const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)));
+                  },
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(d.actividadTitulo ?? d.nombreOriginal,
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+          Text(AppDateUtils.formatDate(d.fechaSubida),
+              style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
+        ],
+      ),
+    );
+  }
+}
+
+class _CartaTile extends StatelessWidget {
+  final Carta carta;
+
+  const _CartaTile({required this.carta});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = carta;
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          leading: const Icon(Icons.mail_outline, color: AppColors.tealCyan),
+          title: Text(c.titulo, style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: Text(
+            [
+              if (c.actividadTitulo != null) c.actividadTitulo!,
+              if (c.version != null) 'versión ${c.version}',
+              AppDateUtils.formatDate(c.fechaCreacion),
+            ].join(' · '),
+            style: const TextStyle(fontSize: 12),
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          children: [SelectableText(c.contenido, style: const TextStyle(height: 1.4))],
+        ),
+      ),
+    );
+  }
+}
+
+class _DatoBlanco extends StatelessWidget {
+  final IconData icon;
+  final String texto;
+
+  const _DatoBlanco(this.icon, this.texto);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: Colors.white.withAlpha(200)),
+        const SizedBox(width: 6),
+        Flexible(child: Text(texto, style: TextStyle(color: Colors.white.withAlpha(230), fontSize: 13))),
+      ],
+    );
+  }
+}
+
+class _Contador extends StatelessWidget {
+  final String valor;
+  final String etiqueta;
+
+  const _Contador(this.valor, this.etiqueta);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(valor, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+        Text(etiqueta, style: TextStyle(color: Colors.white.withAlpha(180), fontSize: 11)),
+      ],
+    );
+  }
+}
+
+class _Cargando extends StatelessWidget {
+  const _Cargando();
+
+  @override
+  Widget build(BuildContext context) =>
+      const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2));
+}
+
+class _TabsDelegate extends SliverPersistentHeaderDelegate {
+  final TabBar tabBar;
+
+  _TabsDelegate(this.tabBar);
+
+  @override
+  double get minExtent => tabBar.preferredSize.height;
+
+  @override
+  double get maxExtent => tabBar.preferredSize.height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(color: Theme.of(context).scaffoldBackgroundColor, child: tabBar);
+  }
+
+  @override
+  bool shouldRebuild(_TabsDelegate oldDelegate) => oldDelegate.tabBar != tabBar;
 }

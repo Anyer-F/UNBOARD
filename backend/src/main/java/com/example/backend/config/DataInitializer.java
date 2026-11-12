@@ -31,6 +31,7 @@ public class DataInitializer implements CommandLineRunner {
     private final ApadrinadoRepository apadrinadoRepository;
     private final CodigoAccesoRepository codigoAccesoRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.example.backend.service.ModuloService moduloService;
 
     @Override
     public void run(String... args) {
@@ -103,6 +104,9 @@ public class DataInitializer implements CommandLineRunner {
                 });
             });
         }
+
+        // 8. Toda comunidad tiene al menos su Módulo 1
+        comunidadRepository.findAll().forEach(moduloService::asegurarModuloInicial);
 
         log.info("Inicialización de datos base finalizada con éxito.");
     }

@@ -86,7 +86,13 @@ class InitialsAvatar extends StatelessWidget {
   });
 
   String get _initials {
-    final parts = name.trim().split(' ');
+    // Solo letras: '¡Hola, Carlos!' no debe dar '¡C'
+    final parts = name
+        .trim()
+        .split(RegExp(r's+'))
+        .map((p) => p.replaceAll(RegExp(r'[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]'), ''))
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts[0].substring(0, 1).toUpperCase();
     return '${parts[0][0]}${parts[1][0]}'.toUpperCase();

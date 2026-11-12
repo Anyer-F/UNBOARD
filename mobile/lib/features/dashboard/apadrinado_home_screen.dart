@@ -3,338 +3,323 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_radius.dart';
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/responsive.dart';
-import '../../../shared/models/actividad.dart';
-import '../../../shared/models/expediente.dart';
+import '../../../shared/models/asignacion.dart';
+import '../../../shared/models/modulo.dart' show TableroApadrinado;
 import '../../../shared/models/notificacion.dart';
-import '../../../shared/widgets/app_card.dart';
+import '../../../shared/widgets/actividad_widgets.dart';
 import '../../../shared/widgets/cards.dart';
 import '../../../shared/widgets/common_widgets.dart';
 import '../../../shared/widgets/profile_header.dart';
 import '../../../shared/widgets/states.dart';
-import '../../../services/actividad_service.dart';
+import '../../../services/asignacion_service.dart';
 import '../../../services/auth_service.dart';
-import '../../../services/expediente_service.dart';
+import '../../../services/comunidad_service.dart';
 import '../../../services/notificacion_service.dart';
-import '../actividades/actividad_entrega_screen.dart';
-import '../expediente/expediente_screen.dart';
+import '../actividades/asignacion_screen.dart';
 
-/// Dashboard del Apadrinado (especificación §14).
+/// Inicio del apadrinado: tablero de pendientes.
 ///
-/// Pantalla sin saturación: saludo, resumen de comunidad,
-/// actividad próxima, acceso al expediente y notificaciones
-/// recientes. Tarjetas compactas con solo la información
-/// necesaria para decidir si abrirlas.
+/// Muestra las tareas Pendientes, En progreso y con Corrección
+/// solicitada ordenadas por fecha límite, destacando las próximas a
+/// vencer y las que tienen correcciones del coordinador.
 class ApadrinadoHomeContent extends StatefulWidget {
   final VoidCallback? onRefreshRequested;
 
-  const ApadrinadoHomeContent({super.key, this.onRefreshRequested});
+  /// Abre la pestaña "Mi comunidad".
+  final VoidCallback? onVerComunidad;
+
+  const ApadrinadoHomeContent({super.key, this.onRefreshRequested, this.onVerComunidad});
 
   @override
   State<ApadrinadoHomeContent> createState() => _ApadrinadoHomeContentState();
 }
 
 class _ApadrinadoHomeContentState extends State<ApadrinadoHomeContent> {
-  final _actividadService = ActividadService();
-  final _expedienteService = ExpedienteService();
+  final _asignacionService = AsignacionService();
+  final _comunidadService = ComunidadService();
   final _notifService = NotificacionService();
 
-  List<Actividad> _actividades = [];
+  TableroApadrinado? _tablero;
+  String? _comunidad;
   List<Notificacion> _notificaciones = [];
-  Expediente? _expediente;
-  bool _isLoading = true;
+  bool _cargando = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _cargarDatos();
+    _cargar();
   }
 
-  Future<void> _cargarDatos() async {
+  Future<void> _cargar() async {
     final user = Provider.of<AuthService>(context, listen: false).currentUser;
-    if (user?.apadrinadoId == null) {
-      if (mounted) setState(() => _isLoading = false);
-      return;
-    }
-
     setState(() {
-      _isLoading = true;
+      _cargando = _tablero == null;
       _error = null;
     });
-
     try {
-      final acts = await _actividadService.listarPorApadrinado(user!.apadrinadoId!);
-      final exp = await _expedienteService.obtenerPorApadrinadoId(user.apadrinadoId!);
-      final notifs = await _notifService.listarPorUsuario(user.usuarioId);
-
-      if (mounted) {
-        setState(() {
-          _actividades = acts;
-          _expediente = exp;
-          _notificaciones = notifs.take(3).toList();
-          _isLoading = false;
-        });
+      final tablero = await _asignacionService.tablero();
+      String? comunidad = _comunidad;
+      try {
+        comunidad ??= (await _comunidadService.miComunidad()).comunidad.nombre;
+      } catch (_) {}
+      List<Notificacion> notificaciones = [];
+      if (user != null) {
+        try {
+          notificaciones = (await _notifService.listarPorUsuario(user.usuarioId)).take(3).toList();
+        } catch (_) {}
       }
+      if (!mounted) return;
+      setState(() {
+        _tablero = tablero;
+        _comunidad = comunidad;
+        _notificaciones = notificaciones;
+        _cargando = false;
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _error = e.toString().replaceAll('Exception: ', '');
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _error = mensajeDeError(e);
+        _cargando = false;
+      });
     }
+    widget.onRefreshRequested?.call();
   }
 
+  Future<void> _abrir(Asignacion s) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => AsignacionScreen(asignacionId: s.id)),
+    );
+    if (mounted) _cargar();
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_cargando) return const LoadingState(message: 'Cargando tus actividades...');
+    if (_error != null && _tablero == null) {
+      return ErrorState(title: 'No se pudo cargar el inicio', message: _error, onRetry: _cargar);
+    }
     final user = Provider.of<AuthService>(context).currentUser;
-
-    if (_isLoading) {
-      return const LoadingState(message: 'Cargando tu información...');
-    }
-
-    if (_error != null && _actividades.isEmpty) {
-      return ErrorState(
-        title: 'No se pudieron cargar tus datos',
-        message: _error,
-        onRetry: _cargarDatos,
-      );
-    }
-
     return ApadrinadoHomeView(
       nombre: user?.nombre ?? 'Apadrinado',
-      comunidad: _expediente?.apadrinado?.comunidadNombre ?? 'No asignada',
-      actividades: _actividades,
+      comunidad: _comunidad,
+      tablero: _tablero ?? TableroApadrinado(),
       notificaciones: _notificaciones,
-      onRefresh: _cargarDatos,
-      onAbrirActividad: (actividad) async {
-        final enviada = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ActividadEntregaScreen(actividad: actividad),
-          ),
-        );
-        if (enviada == true) _cargarDatos();
-      },
-      onAbrirExpediente: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ExpedienteScreen()),
-        );
-      },
+      onRefresh: _cargar,
+      onAbrirAsignacion: _abrir,
+      onVerComunidad: widget.onVerComunidad,
     );
   }
 }
 
-/// Vista del dashboard del Apadrinado (sin estado ni red).
-///
-/// Una columna en teléfonos; en tablet/web la actividad próxima y el
-/// resumen quedan a la izquierda y el expediente y las notificaciones
-/// a la derecha.
+/// Vista del inicio del apadrinado (sin estado, para poder probarla).
 class ApadrinadoHomeView extends StatelessWidget {
   final String nombre;
-  final String comunidad;
-  final List<Actividad> actividades;
+  final String? comunidad;
+  final TableroApadrinado tablero;
   final List<Notificacion> notificaciones;
   final Future<void> Function() onRefresh;
-  final void Function(Actividad)? onAbrirActividad;
-  final VoidCallback? onAbrirExpediente;
+  final void Function(Asignacion)? onAbrirAsignacion;
+  final VoidCallback? onVerComunidad;
 
   const ApadrinadoHomeView({
     super.key,
     required this.nombre,
-    required this.comunidad,
-    required this.actividades,
-    required this.notificaciones,
+    this.comunidad,
+    required this.tablero,
+    this.notificaciones = const [],
     required this.onRefresh,
-    this.onAbrirActividad,
-    this.onAbrirExpediente,
+    this.onAbrirAsignacion,
+    this.onVerComunidad,
   });
-
-  List<Actividad> get _pendientes => actividades
-      .where((a) =>
-          a.estado == 'PENDIENTE' ||
-          a.estado == 'EN_PROCESO' ||
-          a.estado == 'CORRECCION_SOLICITADA')
-      .toList();
-
-  Actividad? get _proximaActividad {
-    final pendientes = List<Actividad>.from(_pendientes);
-    pendientes.sort((a, b) {
-      final fa = a.fechaLimite ?? '9999';
-      final fb = b.fechaLimite ?? '9999';
-      return fa.compareTo(fb);
-    });
-    return pendientes.isNotEmpty ? pendientes.first : null;
-  }
 
   @override
   Widget build(BuildContext context) {
-    final proxima = _proximaActividad;
-    final pendientes = _pendientes.length;
+    final pendientes = tablero.pendientes;
+    // Las tarjetas ya traen su propio margen horizontal
+    const sinMargen = EdgeInsets.symmetric(vertical: AppSpacing.xs);
 
     return DashboardLayout(
       onRefresh: onRefresh,
       principal: [
-        // Saludo
         ProfileHeader(
           nombre: '¡Hola, $nombre!',
-          correo: 'Comunidad: $comunidad',
+          nombreAvatar: nombre,
+          comunidad: comunidad,
+          rol: 'Apadrinado',
         ),
         const SizedBox(height: AppSpacing.xl),
-
-        // Actividad próxima
-        if (proxima != null) ...[
-          const SectionHeader(
-            title: 'Actividad próxima',
-            subtitle: 'Requiere tu atención',
+        SectionHeader(
+          title: 'Mis pendientes',
+          subtitle: pendientes.isEmpty
+              ? 'No tienes tareas por realizar'
+              : 'Ordenadas por fecha límite',
+        ),
+        if (tablero.correcciones > 0 || tablero.proximasAVencer > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: _Aviso(correcciones: tablero.correcciones, proximas: tablero.proximasAVencer),
           ),
-          ActivityCard(
-            actividad: proxima,
-            showProgress: true,
-            completedItems: 0,
-            totalItems: 1,
-            onTap: onAbrirActividad == null
-                ? null
-                : () => onAbrirActividad!(proxima),
-          ),
-        ] else ...[
-          const SizedBox(height: AppSpacing.sm),
+        const SizedBox(height: AppSpacing.sm),
+        if (pendientes.isEmpty)
           const EmptyState(
             icon: Icons.assignment_turned_in_outlined,
-            title: 'Sin actividades pendientes',
-            description: 'Cuando te asignen una actividad aparecerá aquí',
-          ),
-        ],
+            title: '¡Estás al día!',
+            description: 'Cuando tu coordinador te asigne una tarea aparecerá aquí.',
+          )
+        else
+          for (final s in pendientes)
+            AsignacionCard(
+              asignacion: s,
+              margin: sinMargen,
+              onTap: onAbrirAsignacion == null ? null : () => onAbrirAsignacion!(s),
+            ),
         const SizedBox(height: AppSpacing.xl),
-
-        // Resumen
-        const SectionHeader(
-          title: 'Mi resumen',
-          subtitle: 'Estado general de tus actividades',
-        ),
+      ],
+      secundario: [
+        const SectionHeader(title: 'Mi resumen', subtitle: 'Estado de tus actividades'),
         const SizedBox(height: AppSpacing.sm),
         MetricRow(
           children: [
             _MetricCard(
               label: 'Pendientes',
-              value: '$pendientes',
+              value: '${pendientes.length}',
               icon: Icons.assignment_late_outlined,
               color: AppColors.mustardGold,
             ),
             _MetricCard(
-              label: 'Completadas',
-              value: '${actividades.length - pendientes}',
+              label: 'Correcciones',
+              value: '${tablero.correcciones}',
+              icon: Icons.edit_note_outlined,
+              color: AppColors.coralRed,
+            ),
+            _MetricCard(
+              label: 'Por vencer',
+              value: '${tablero.proximasAVencer}',
+              icon: Icons.alarm_outlined,
+              color: AppColors.brownCocoa,
+            ),
+            _MetricCard(
+              label: 'Realizadas',
+              value: '${tablero.realizadas}',
               icon: Icons.check_circle_outline,
               color: AppColors.sageGreen,
             ),
           ],
         ),
         const SizedBox(height: AppSpacing.xl),
-      ],
-      secundario: [
-        // Expediente digital
-        const SectionHeader(
-          title: 'Mi expediente digital',
-          subtitle: 'Tu carpeta digital organizada',
+        SectionHeader(
+          title: 'Mi comunidad',
+          subtitle: tablero.anunciosNuevos > 0
+              ? '${tablero.anunciosNuevos} anuncio(s) o material sin ver'
+              : 'Módulos, anuncios y material de apoyo',
         ),
         const SizedBox(height: AppSpacing.sm),
-        AppCard(
-          onTap: onAbrirExpediente,
+        _AccesoComunidad(comunidad: comunidad, nuevos: tablero.anunciosNuevos, onTap: onVerComunidad),
+        if (notificaciones.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.xl),
+          const SectionHeader(title: 'Notificaciones recientes'),
+          const SizedBox(height: AppSpacing.sm),
+          for (final n in notificaciones) NotificationCard(notificacion: n),
+        ],
+      ],
+    );
+  }
+}
+
+class _Aviso extends StatelessWidget {
+  final int correcciones;
+  final int proximas;
+
+  const _Aviso({required this.correcciones, required this.proximas});
+
+  @override
+  Widget build(BuildContext context) {
+    final partes = [
+      if (correcciones > 0) '$correcciones con correcciones solicitadas',
+      if (proximas > 0) '$proximas próxima(s) a vencer',
+    ];
+    final color = correcciones > 0 ? AppColors.coralRed : AppColors.mustardGold;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: color.withAlpha(20),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: color.withAlpha(60)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.priority_high_rounded, color: color, size: 20),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              'Tienes ${partes.join(' y ')}.',
+              style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccesoComunidad extends StatelessWidget {
+  final String? comunidad;
+  final int nuevos;
+  final VoidCallback? onTap;
+
+  const _AccesoComunidad({this.comunidad, required this.nuevos, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.tealCyan.withAlpha(15),
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    decoration: BoxDecoration(
-                      color: AppColors.darkNavy.withAlpha(13),
-                      borderRadius: BorderRadius.circular(AppRadius.md),
+              const Icon(Icons.groups_outlined, color: AppColors.tealCyan, size: 28),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      comunidad ?? 'Mi comunidad',
+                      style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.charcoal),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    child: const Icon(
-                      Icons.folder_shared_outlined,
-                      color: AppColors.darkNavy,
-                      size: 28,
+                    const Text(
+                      'Ver módulos y actividades',
+                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                     ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Ver mi expediente',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                          ),
-                        ),
-                        SizedBox(height: AppSpacing.xs),
-                        Text(
-                          'Documentos, fotografías, cartas y evidencias',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(
-                    Icons.arrow_forward_ios,
-                    size: 16,
-                    color: AppColors.textTertiary,
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: AppSpacing.md),
-              const Divider(height: 1),
-              const SizedBox(height: AppSpacing.md),
-              const Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: [
-                  _ExpedienteShortcut(
-                    icon: Icons.description_outlined,
-                    label: 'Documentos',
-                    color: AppColors.darkNavy,
+              if (nuevos > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.coralRed,
+                    borderRadius: BorderRadius.circular(AppRadius.full),
                   ),
-                  _ExpedienteShortcut(
-                    icon: Icons.photo_library_outlined,
-                    label: 'Fotografías',
-                    color: AppColors.tealCyan,
-                  ),
-                  _ExpedienteShortcut(
-                    icon: Icons.mail_outline,
-                    label: 'Cartas',
-                    color: AppColors.mustardGold,
-                  ),
-                  _ExpedienteShortcut(
-                    icon: Icons.verified_outlined,
-                    label: 'Evidencias',
-                    color: AppColors.sageGreen,
-                  ),
-                ],
-              ),
+                  child: Text('$nuevos',
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                ),
+              const Icon(Icons.chevron_right, color: AppColors.textSecondary),
             ],
           ),
         ),
-        const SizedBox(height: AppSpacing.xl),
-
-        // Notificaciones recientes
-        if (notificaciones.isNotEmpty) ...[
-          const SectionHeader(title: 'Notificaciones recientes'),
-          const SizedBox(height: AppSpacing.sm),
-          ...notificaciones.map(
-            (notif) => NotificationCard(notificacion: notif),
-          ),
-        ],
-      ],
+      ),
     );
   }
 }
@@ -371,64 +356,14 @@ class _MetricCard extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Text(
               value,
-              style: TextStyle(
-                color: color,
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.w700),
             ),
           ),
           Text(
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: color.withAlpha(204),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ExpedienteShortcut extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  const _ExpedienteShortcut({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.xs + 2,
-      ),
-      decoration: BoxDecoration(
-        color: color.withAlpha(13),
-        borderRadius: BorderRadius.circular(AppRadius.full),
-        border: Border.all(color: color.withAlpha(26)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: color),
-          const SizedBox(width: AppSpacing.xs),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
+            style: TextStyle(color: color.withAlpha(204), fontSize: 12, fontWeight: FontWeight.w500),
           ),
         ],
       ),

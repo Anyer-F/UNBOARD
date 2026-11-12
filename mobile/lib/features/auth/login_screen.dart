@@ -7,7 +7,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/responsive.dart';
 import '../../core/utils/validators.dart';
 import '../../services/auth_service.dart';
-import '../apadrinados/join_community_screen.dart';
 import '../perfil/config_screen.dart';
 import 'recuperar_contrasena_screen.dart';
 import 'register_screen.dart';
@@ -60,6 +59,9 @@ class _LoginScreenState extends State<LoginScreen> {
       // La navegación por rol la gestiona el shell en main.dart.
       if (user.isCoordinador) {
         Navigator.pushReplacementNamed(context, '/coordinador/home');
+      } else if (user.sinComunidad) {
+        // Aún no pertenece a una comunidad: debe incorporarse con el código
+        Navigator.pushReplacementNamed(context, '/join-community');
       } else {
         Navigator.pushReplacementNamed(context, '/apadrinado/home');
       }
@@ -161,7 +163,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   const Text(
-                    'UNBOUND DMS',
+                    'UNBOARD',
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w700,
@@ -289,17 +291,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ],
                   ),
-                  TextButton.icon(
-                    icon: const Icon(Icons.group_add_outlined, size: 18),
-                    label: const Text('Unirse con código de comunidad'),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const JoinCommunityScreen(),
-                        ),
-                      );
-                    },
+                  const Text(
+                    '¿Tienes un código de comunidad? Crea tu cuenta y úsalo para unirte.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                   ),
 
                   // Perfiles de prueba (solo para desarrollo)
@@ -348,7 +343,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         label: const Text('Apadrinado'),
                         onPressed: () => _seleccionarUsuarioRapido(
-                          'juan.perez@unbound.org',
+                          'maria.lopez@unbound.org',
                           'password123',
                         ),
                       ),

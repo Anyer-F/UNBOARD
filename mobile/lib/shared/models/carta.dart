@@ -13,6 +13,9 @@ class Carta {
   final int? escritoPorId;
   final String? escritoPorNombre;
   final String? observaciones;
+  final String? actividadTitulo;
+  final int? entregaId;
+  final int? version;
 
   Carta({
     required this.id,
@@ -29,6 +32,9 @@ class Carta {
     this.escritoPorId,
     this.escritoPorNombre,
     this.observaciones,
+    this.actividadTitulo,
+    this.entregaId,
+    this.version,
   });
 
   bool get isBorrador => estado == 'BORRADOR';
@@ -53,6 +59,9 @@ class Carta {
       escritoPorId: json['escritoPorId'] != null ? int.tryParse(json['escritoPorId'].toString()) : null,
       escritoPorNombre: json['escritoPorNombre'],
       observaciones: json['observaciones'],
+      actividadTitulo: json['actividadTitulo'],
+      entregaId: json['entregaId'] != null ? int.tryParse(json['entregaId'].toString()) : null,
+      version: json['version'] != null ? int.tryParse(json['version'].toString()) : null,
     );
   }
 }

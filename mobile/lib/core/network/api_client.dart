@@ -6,6 +6,29 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Error devuelto por la API, con el código HTTP.
+///
+/// `toString()` conserva el formato de `Exception` para que las
+/// pantallas que muestran `e.toString()` sigan funcionando.
+class ApiException implements Exception {
+  final String message;
+  final int statusCode;
+  final Map<String, dynamic>? cuerpo;
+
+  ApiException(this.message, {required this.statusCode, this.cuerpo});
+
+  /// La operación requiere confirmación explícita (HTTP 409).
+  bool get requiereConfirmacion => statusCode == 409;
+
+  bool get accesoDenegado => statusCode == 403;
+
+  @override
+  String toString() => 'Exception: $message';
+}
+
+/// Texto del error listo para mostrar al usuario.
+String mensajeDeError(Object e) => e.toString().replaceFirst('Exception: ', '');
+
 /// Cliente HTTP centralizado para la API REST (Spring Boot).
 ///
 /// - La URL base es configurable y se persiste localmente.
@@ -202,13 +225,17 @@ class ApiService {
       }
     } else {
       String errorMessage = 'Error en el servidor ($statusCode)';
+      Map<String, dynamic>? cuerpo;
       try {
         final errorJson = jsonDecode(utf8.decode(response.bodyBytes));
-        if (errorJson is Map && errorJson.containsKey('message')) {
-          errorMessage = errorJson['message'];
+        if (errorJson is Map) {
+          cuerpo = Map<String, dynamic>.from(errorJson);
+          if (errorJson['message'] != null) {
+            errorMessage = errorJson['message'].toString();
+          }
         }
       } catch (_) {}
-      throw Exception(errorMessage);
+      throw ApiException(errorMessage, statusCode: statusCode, cuerpo: cuerpo);
     }
   }
 }

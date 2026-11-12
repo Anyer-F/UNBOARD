@@ -6,9 +6,8 @@ import '../../../shared/widgets/app_scaffold.dart';
 import '../../../shared/widgets/confirmation_dialog.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/notificacion_service.dart';
-import '../actividades/actividades_screen.dart';
 import '../auth/login_screen.dart';
-import '../expediente/expediente_screen.dart';
+import '../comunidad/mi_comunidad_screen.dart';
 import '../notificaciones/notificaciones_screen.dart';
 import '../perfil/ayuda_screen.dart';
 import '../perfil/perfil_screen.dart';
@@ -17,7 +16,9 @@ import 'apadrinado_home_screen.dart';
 /// Shell del Apadrinado (especificación §8).
 ///
 /// Navegación inferior persistente:
-/// Inicio · Actividades · Expediente · Notificaciones · Perfil
+/// Inicio (pendientes) · Mi comunidad · Notificaciones · Perfil
+///
+/// El apadrinado no tiene funciones de expedientes ni exportaciones.
 class ApadrinadoShell extends StatefulWidget {
   const ApadrinadoShell({super.key});
 
@@ -32,8 +33,7 @@ class _ApadrinadoShellState extends State<ApadrinadoShell> {
 
   static const _titulos = [
     'Inicio',
-    'Mis Actividades',
-    'Mi Expediente',
+    'Mi comunidad',
     'Notificaciones',
     'Mi Perfil',
   ];
@@ -67,9 +67,10 @@ class _ApadrinadoShellState extends State<ApadrinadoShell> {
     if (confirmar && mounted) {
       await Provider.of<AuthService>(context, listen: false).logout();
       if (mounted) {
-        Navigator.pushReplacement(
+        Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (_) => false,
         );
       }
     }
@@ -77,6 +78,7 @@ class _ApadrinadoShellState extends State<ApadrinadoShell> {
 
   void _irA(int index) {
     setState(() => _currentIndex = index);
+    _cargarNoLeidas();
   }
 
   @override
@@ -88,7 +90,7 @@ class _ApadrinadoShellState extends State<ApadrinadoShell> {
           if (_currentIndex == 0)
             NotificationIconButton(
               count: _noLeidas,
-              onPressed: () => _irA(3),
+              onPressed: () => _irA(2),
             ),
           AccountMenuButton(
             items: [
@@ -113,7 +115,7 @@ class _ApadrinadoShellState extends State<ApadrinadoShell> {
             onSelected: (value) {
               switch (value) {
                 case 'perfil':
-                  _irA(4);
+                  _irA(3);
                 case 'ayuda':
                   Navigator.push(
                     context,
@@ -131,9 +133,8 @@ class _ApadrinadoShellState extends State<ApadrinadoShell> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          ApadrinadoHomeContent(onRefreshRequested: _cargarNoLeidas),
-          const ApadrinadoActividadesContent(),
-          const ExpedienteScreen(),
+          ApadrinadoHomeContent(onRefreshRequested: _cargarNoLeidas, onVerComunidad: () => _irA(1)),
+          const MiComunidadContent(),
           const NotificacionesScreen(embedded: true),
           const PerfilScreen(embedded: true),
         ],
@@ -148,14 +149,9 @@ class _ApadrinadoShellState extends State<ApadrinadoShell> {
             label: 'Inicio',
           ),
           NavigationItem(
-            icon: Icons.assignment_outlined,
-            activeIcon: Icons.assignment,
-            label: 'Actividades',
-          ),
-          NavigationItem(
-            icon: Icons.folder_outlined,
-            activeIcon: Icons.folder,
-            label: 'Expediente',
+            icon: Icons.groups_outlined,
+            activeIcon: Icons.groups,
+            label: 'Comunidad',
           ),
           NavigationItem(
             icon: Icons.notifications_outlined,

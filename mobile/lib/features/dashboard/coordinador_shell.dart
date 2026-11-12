@@ -6,11 +6,11 @@ import '../../../shared/widgets/app_scaffold.dart';
 import '../../../shared/widgets/confirmation_dialog.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/notificacion_service.dart';
-import '../actividades/coordinador_actividades_screen.dart';
-import '../actividades/crear_actividad_screen.dart';
+import '../actividades/tablero_actividades_screen.dart';
 import '../apadrinados/apadrinados_list_screen.dart';
 import '../auth/login_screen.dart';
 import '../comunidades/comunidades_screen.dart';
+import '../notificaciones/notificaciones_screen.dart';
 import '../perfil/ayuda_screen.dart';
 import '../perfil/perfil_screen.dart';
 import 'coordinador_dashboard_screen.dart';
@@ -18,7 +18,8 @@ import 'coordinador_dashboard_screen.dart';
 /// Shell del Coordinador (especificación §9).
 ///
 /// Navegación inferior persistente:
-/// Inicio · Comunidades · Actividades · Apadrinados · Perfil
+/// Inicio · Comunidades · Actividades (tablero) · Apadrinados · Perfil
+/// La campana abre las notificaciones.
 class CoordinadorShell extends StatefulWidget {
   const CoordinadorShell({super.key});
 
@@ -34,7 +35,7 @@ class _CoordinadorShellState extends State<CoordinadorShell> {
   static const _titulos = [
     'Inicio',
     'Mis Comunidades',
-    'Mis Actividades',
+    'Tablero de actividades',
     'Mis Apadrinados',
     'Mi Perfil',
   ];
@@ -80,17 +81,24 @@ class _CoordinadorShellState extends State<CoordinadorShell> {
     setState(() => _currentIndex = index);
   }
 
+  Future<void> _abrirNotificaciones() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const NotificacionesScreen()),
+    );
+    _cargarNoLeidas();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(_titulos[_currentIndex]),
         actions: [
-          if (_currentIndex == 0)
-            NotificationIconButton(
-              count: _noLeidas,
-              onPressed: () => _irA(4),
-            ),
+          NotificationIconButton(
+            count: _noLeidas,
+            onPressed: _abrirNotificaciones,
+          ),
           AccountMenuButton(
             items: const [
               AccountMenuEntry(
@@ -132,31 +140,16 @@ class _CoordinadorShellState extends State<CoordinadorShell> {
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          CoordinadorHomeContent(onAbrirComunidades: () => _irA(1)),
+          CoordinadorHomeContent(
+            onAbrirComunidades: () => _irA(1),
+            onAbrirActividades: () => _irA(2),
+          ),
           const ComunidadesScreen(),
-          const CoordinadorActividadesContent(),
+          const TableroActividadesContent(),
           const ApadrinadosListScreen(embedded: true),
           const PerfilScreen(embedded: true),
         ],
       ),
-      floatingActionButton: _currentIndex == 2
-          ? FloatingActionButton.extended(
-              onPressed: () async {
-                final creada = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const CrearActividadScreen(),
-                  ),
-                );
-                if (creada == true && mounted) {
-                  // Recarga la pestaña de actividades
-                  setState(() {});
-                }
-              },
-              icon: const Icon(Icons.add),
-              label: const Text('Nueva Actividad'),
-            )
-          : null,
       bottomNavigationBar: AppBottomNavigation(
         currentIndex: _currentIndex,
         onTap: _irA,

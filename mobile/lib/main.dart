@@ -47,10 +47,11 @@ class UnboundApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'UNBOUND DMS',
+      title: 'UNBOARD',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      initialRoute: '/splash',
+      // '/' evita que Flutter apile dos pantallas de carga ('/' y '/splash')
+      initialRoute: '/',
       onGenerateRoute: (settings) {
         Widget page;
         switch (settings.name) {

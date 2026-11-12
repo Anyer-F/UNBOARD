@@ -39,6 +39,13 @@ public class ApadrinadoService {
     private final ExpedienteRepository expedienteRepository;
     private final RolRepository rolRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ConvertidorDTO convertidor;
+    private final ActividadService actividadService;
+    private final DocumentoService documentoService;
+    private final com.example.backend.repository.DocumentoRepository documentoRepository;
+    private final com.example.backend.repository.CartaRepository cartaRepository;
+    private final com.example.backend.repository.EntregaRepository entregaRepository;
+    private final com.example.backend.repository.AsignacionRepository asignacionRepository;
 
     @Transactional(readOnly = true)
     public List<ApadrinadoResponseDTO> listarTodos() {
@@ -172,6 +179,9 @@ public class ApadrinadoService {
             expedienteRepository.save(expediente);
         }
 
+        // Recibe las actividades asignadas a toda su comunidad
+        actividadService.asignarActividadesDeComunidad(guardado,
+                coordinador != null ? coordinador.getUsuario() : null);
         return convertirAResponseDTO(guardado);
     }
 
@@ -193,6 +203,8 @@ public class ApadrinadoService {
         }
 
         Apadrinado actualizado = apadrinadoRepository.save(apadrinado);
+        actividadService.asignarActividadesDeComunidad(actualizado,
+                actualizado.getCoordinador() != null ? actualizado.getCoordinador().getUsuario() : null);
         return convertirAResponseDTO(actualizado);
     }
 
@@ -201,47 +213,25 @@ public class ApadrinadoService {
         if (!apadrinadoRepository.existsById(id)) {
             throw new RuntimeException("Apadrinado no encontrado con ID: " + id);
         }
-        // Si existe un expediente asociado, eliminarlo primero
-        expedienteRepository.findByApadrinadoId(id).ifPresent(expedienteRepository::delete);
+        // Las entregas enviadas forman parte de la trazabilidad del expediente
+        boolean conEntregas = asignacionRepository.findByApadrinadoIdOrderByFechaAsignacionAsc(id).stream()
+                .anyMatch(s -> entregaRepository.existsByAsignacionIdAndEstadoNot(
+                        s.getId(), com.example.backend.entity.EstadoEntrega.BORRADOR));
+        if (conEntregas) {
+            throw new RuntimeException(
+                    "El apadrinado ya tiene entregas registradas en su expediente y no se puede eliminar.");
+        }
+        expedienteRepository.findByApadrinadoId(id).ifPresent(expediente -> {
+            documentoService.eliminarTodos(documentoRepository.findByExpedienteId(expediente.getId()));
+            cartaRepository.deleteAll(cartaRepository.findByExpedienteId(expediente.getId()));
+            cartaRepository.flush();
+            expedienteRepository.delete(expediente);
+            expedienteRepository.flush();
+        });
         apadrinadoRepository.deleteById(id);
     }
 
     public ApadrinadoResponseDTO convertirAResponseDTO(Apadrinado apadrinado) {
-        Long usuarioId = null;
-        String nombre = null;
-        String correo = null;
-
-        if (apadrinado.getUsuario() != null) {
-            usuarioId = apadrinado.getUsuario().getId();
-            nombre = apadrinado.getUsuario().getNombre();
-            correo = apadrinado.getUsuario().getCorreo();
-        }
-
-        Long coordId = null;
-        String coordNombre = null;
-        if (apadrinado.getCoordinador() != null) {
-            coordId = apadrinado.getCoordinador().getId();
-            if (apadrinado.getCoordinador().getUsuario() != null) {
-                coordNombre = apadrinado.getCoordinador().getUsuario().getNombre();
-            }
-        }
-
-        Long comunidadId = null;
-        String comunidadNombre = null;
-        if (apadrinado.getComunidad() != null) {
-            comunidadId = apadrinado.getComunidad().getId();
-            comunidadNombre = apadrinado.getComunidad().getNombre();
-        }
-
-        return ApadrinadoResponseDTO.builder()
-                .id(apadrinado.getId())
-                .usuarioId(usuarioId)
-                .nombre(nombre)
-                .correo(correo)
-                .coordinadorId(coordId)
-                .coordinadorNombre(coordNombre)
-                .comunidadId(comunidadId)
-                .comunidadNombre(comunidadNombre)
-                .build();
+        return convertidor.apadrinado(apadrinado);
     }
 }

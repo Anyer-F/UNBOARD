@@ -1,433 +1,535 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter/services.dart';
 
-import '../../../core/constants/app_spacing.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../shared/models/apadrinado.dart';
-import '../../../shared/models/actividad.dart';
-import '../../../shared/models/comunidad.dart';
-import '../../../shared/models/solicitud_incorporacion.dart';
-import '../../../shared/widgets/app_card.dart';
-import '../../../shared/widgets/cards.dart';
-import '../../../shared/widgets/confirmation_dialog.dart';
-import '../../../shared/widgets/states.dart';
-import '../../../services/auth_service.dart';
-import '../../../services/expediente_service.dart';
-import '../../../services/actividad_service.dart';
-import '../actividades/actividad_detalle_screen.dart';
-import '../actividades/crear_actividad_screen.dart';
+import '../../core/constants/app_radius.dart';
+import '../../core/constants/app_spacing.dart';
+import '../../core/network/api_client.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/utils/date_utils.dart';
+import '../../core/utils/responsive.dart';
+import '../../services/comunidad_service.dart';
+import '../../shared/models/apadrinado.dart';
+import '../../shared/models/comunidad.dart';
+import '../../shared/widgets/app_card.dart';
+import '../../shared/widgets/cards.dart';
+import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirmation_dialog.dart';
+import '../../shared/widgets/states.dart';
+import '../actividades/tablero_actividades_screen.dart';
 import '../expediente/expediente_detalle_screen.dart';
+import '../historial/historial_screen.dart';
+import 'comunidad_form_dialog.dart';
+import 'modulos_screen.dart';
 import 'solicitudes_screen.dart';
 
-/// Detalle de comunidad (especificación §23).
-///
-/// Muestra el código de comunidad y dos pestañas:
-/// Personas (apadrinados) y Actividades asignadas.
+/// Detalle de una comunidad del Coordinador: datos, modo de
+/// incorporación, códigos de acceso, solicitudes, módulos, actividades,
+/// apadrinados e historial.
 class ComunidadDetalleScreen extends StatefulWidget {
-  final Comunidad comunidad;
+  final int comunidadId;
 
-  const ComunidadDetalleScreen({
-    super.key,
-    required this.comunidad,
-  });
+  const ComunidadDetalleScreen({super.key, required this.comunidadId});
 
   @override
-  State<ComunidadDetalleScreen> createState() =>
-      _ComunidadDetalleScreenState();
+  State<ComunidadDetalleScreen> createState() => _ComunidadDetalleScreenState();
 }
 
-class _ComunidadDetalleScreenState
-    extends State<ComunidadDetalleScreen>
-    with SingleTickerProviderStateMixin {
-  final _expedienteService = ExpedienteService();
-  final _actividadService = ActividadService();
+class _ComunidadDetalleScreenState extends State<ComunidadDetalleScreen> {
+  final _servicio = ComunidadService();
 
-  late final TabController _tabController =
-      TabController(length: 2, vsync: this);
-
+  Comunidad? _comunidad;
+  List<CodigoAcceso> _codigos = [];
   List<Apadrinado> _apadrinados = [];
-  List<Actividad> _actividades = [];
-  List<SolicitudIncorporacion> _solicitudes = [];
-  String _codigo = '';
+  int _solicitudes = 0;
   bool _isLoading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _cargarDatos();
+    _cargar();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _cargarDatos() async {
-    final user = Provider.of<AuthService>(context, listen: false).currentUser;
-    if (user?.coordinadorId == null) {
-      if (mounted) setState(() => _isLoading = false);
-      return;
-    }
-
+  Future<void> _cargar() async {
     setState(() {
-      _isLoading = true;
+      _isLoading = _comunidad == null;
       _error = null;
     });
-
     try {
-      final apadrinados = await _expedienteService
-          .listarApadrinadosPorCoordinador(user!.coordinadorId!);
-      final actividades = await _actividadService
-          .listarPorCoordinador(user.coordinadorId!);
-      final solicitudes =
-          await _expedienteService.listarSolicitudes(widget.comunidad.id);
-      final codigo =
-          await _expedienteService.obtenerCodigoComunidad(
-        widget.comunidad.id,
-      );
-
-      if (mounted) {
-        setState(() {
-          _apadrinados = apadrinados
-              .where((a) => a.comunidadId == widget.comunidad.id)
-              .toList();
-          _actividades = actividades
-              .where((a) =>
-                  a.apadrinadoId != null &&
-                  _apadrinados
-                      .any((ap) => ap.id == a.apadrinadoId))
-              .toList();
-          _solicitudes = solicitudes
-              .where((s) => s.isPendiente)
-              .toList();
-          _codigo = codigo;
-          _isLoading = false;
-        });
-      }
+      final id = widget.comunidadId;
+      final r = await Future.wait([
+        _servicio.obtener(id),
+        _servicio.codigos(id),
+        _servicio.apadrinados(id),
+        _servicio.solicitudesPendientes(comunidadId: id),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _comunidad = r[0] as Comunidad;
+        _codigos = (r[1] as List<CodigoAcceso>)..sort((a, b) => (b.activo ? 1 : 0) - (a.activo ? 1 : 0));
+        _apadrinados = r[2] as List<Apadrinado>;
+        _solicitudes = (r[3] as List).length;
+        _isLoading = false;
+      });
     } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _error = e.toString().replaceAll('Exception: ', '');
+          _error = mensajeDeError(e);
         });
       }
     }
   }
 
-  int _pendientesEnComunidad() {
-    return _actividades
-        .where((a) =>
-            a.estado == 'PENDIENTE' ||
-            a.estado == 'EN_PROCESO' ||
-            a.estado == 'ENTREGADA' ||
-            a.estado == 'EN_REVISION')
-        .length;
-  }
-
-  Future<void> _crearActividad() async {
-    final creada = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CrearActividadScreen(
-          comunidad: widget.comunidad,
-        ),
-      ),
+  void _aviso(String texto, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(texto), backgroundColor: error ? AppColors.coralRed : null),
     );
-    if (creada == true) _cargarDatos();
   }
 
-  Future<void> _editarActividad(Actividad act) async {
-    final actualizado = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CrearActividadScreen(
-          actividadParaEditar: act,
-        ),
-      ),
-    );
-    if (actualizado == true) _cargarDatos();
+  Future<void> _abrir(Widget pantalla) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => pantalla));
+    if (mounted) _cargar();
   }
 
-  Future<void> _eliminarActividad(Actividad act) async {
-    final confirmar = await showConfirmationDialog(
+  Future<void> _editar() async {
+    final editada = await mostrarFormularioComunidad(context, comunidad: _comunidad);
+    if (editada != null && mounted) {
+      _aviso('Comunidad actualizada');
+      _cargar();
+    }
+  }
+
+  Future<void> _cambiarModo(String modo) async {
+    try {
+      final c = await _servicio.actualizar(widget.comunidadId, {'modoIncorporacion': modo});
+      if (mounted) {
+        setState(() => _comunidad = c);
+        _aviso(modo == 'DIRECTO'
+            ? 'Ahora el código incorpora a los apadrinados de inmediato'
+            : 'Ahora las incorporaciones requieren su aprobación');
+      }
+    } catch (e) {
+      if (mounted) _aviso(mensajeDeError(e), error: true);
+    }
+  }
+
+  Future<void> _eliminar() async {
+    final ok = await showConfirmationDialog(
       context,
-      title: 'Eliminar actividad',
-      message:
-          '¿Eliminar "${act.titulo}"? Esta acción no se puede deshacer.',
+      title: 'Eliminar comunidad',
+      message: 'Solo se puede eliminar una comunidad sin apadrinados ni actividades. ¿Desea continuar?',
       confirmLabel: 'Eliminar',
       isDanger: true,
       icon: Icons.delete_outline,
     );
-    if (!confirmar || !mounted) return;
-
+    if (!ok || !mounted) return;
     try {
-      await _actividadService.eliminar(act.id);
+      await _servicio.eliminar(widget.comunidadId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Actividad "${act.titulo}" eliminada'),
-            backgroundColor: AppColors.sageGreen,
-          ),
-        );
-        _cargarDatos();
+        _aviso('Comunidad eliminada');
+        Navigator.pop(context, true);
       }
     } catch (e) {
+      if (mounted) _aviso(mensajeDeError(e), error: true);
+    }
+  }
+
+  // ==================== CÓDIGOS ====================
+
+  Future<void> _generarCodigo() async {
+    final datos = await showDialog<_DatosCodigo>(context: context, builder: (_) => const _GenerarCodigoDialog());
+    if (datos == null || !mounted) return;
+    try {
+      final c = await _servicio.generarCodigo(widget.comunidadId,
+          maxUsos: datos.maxUsos, expira: datos.expira, descripcion: datos.descripcion);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                'Error al eliminar: ${e.toString().replaceAll('Exception: ', '')}'),
-            backgroundColor: AppColors.coralRed,
-          ),
-        );
+        _aviso('Código ${c.codigo} generado');
+        _cargar();
       }
+    } catch (e) {
+      if (mounted) _aviso(mensajeDeError(e), error: true);
+    }
+  }
+
+  Future<void> _copiar(CodigoAcceso c) async {
+    await Clipboard.setData(ClipboardData(text: c.codigo));
+    if (mounted) _aviso('Código ${c.codigo} copiado. Compártelo con los apadrinados.');
+  }
+
+  Future<void> _desactivar(CodigoAcceso c) async {
+    final ok = await showConfirmationDialog(
+      context,
+      title: 'Desactivar código',
+      message: 'El código ${c.codigo} dejará de funcionar para nuevas incorporaciones.',
+      confirmLabel: 'Desactivar',
+      isDanger: true,
+      icon: Icons.block,
+    );
+    if (!ok || !mounted) return;
+    try {
+      await _servicio.desactivarCodigo(c.id);
+      if (mounted) _cargar();
+    } catch (e) {
+      if (mounted) _aviso(mensajeDeError(e), error: true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final c = _comunidad;
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.comunidad.nombre),
+        title: Text(c?.nombre ?? 'Comunidad'),
+        actions: [
+          if (c != null)
+            PopupMenuButton<String>(
+              onSelected: (v) {
+                if (v == 'editar') _editar();
+                if (v == 'historial') {
+                  _abrir(HistorialScreen(comunidadId: c.id, titulo: 'Historial · ${c.nombre}'));
+                }
+                if (v == 'eliminar') _eliminar();
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'editar', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Editar datos'))),
+                PopupMenuItem(value: 'historial', child: ListTile(leading: Icon(Icons.history), title: Text('Historial'))),
+                PopupMenuItem(
+                  value: 'eliminar',
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline, color: AppColors.coralRed),
+                    title: Text('Eliminar', style: TextStyle(color: AppColors.coralRed)),
+                  ),
+                ),
+              ],
+            ),
+        ],
       ),
       body: _isLoading
           ? const LoadingState(message: 'Cargando comunidad...')
-          : _error != null && _apadrinados.isEmpty && _actividades.isEmpty
-              ? ErrorState(
-                  title: 'No se pudo cargar la comunidad',
-                  message: _error,
-                  onRetry: _cargarDatos,
-                )
-              : Column(
-                  children: [
-                    // Encabezado: código y resumen
-                    AppCard(
-                      margin: const EdgeInsets.all(AppSpacing.lg),
-                      padding: const EdgeInsets.all(AppSpacing.xl),
-                      child: Column(
-                        children: [
-                          const Text(
-                            'Código de comunidad',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppColors.textSecondary,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                _codigo.isNotEmpty ? _codigo : '---',
-                                style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.darkNavy,
-                                  letterSpacing: 2,
-                                ),
-                              ),
-                              const SizedBox(width: AppSpacing.sm),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.content_copy_outlined,
-                                  color: AppColors.tealCyan,
-                                ),
-                                tooltip: 'Copiar código',
-                                onPressed: () {
-                                  ScaffoldMessenger.of(context)
-                                      .showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                          'Código copiado al portapapeles'),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          Row(
-                            mainAxisAlignment:
-                                MainAxisAlignment.spaceEvenly,
-                            children: [
-                              _Stat(
-                                value: '${_apadrinados.length}',
-                                label: 'Apadrinados',
-                              ),
-                              _Stat(
-                                value: '${_pendientesEnComunidad()}',
-                                label: 'Actividades pendientes',
-                              ),
-                              _Stat(
-                                value: '${_solicitudes.length}',
-                                label: 'Solicitudes',
-                              ),
-                            ],
-                          ),
-                          if (_solicitudes.isNotEmpty) ...[
-                            const SizedBox(height: AppSpacing.md),
-                            TextButton.icon(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => SolicitudesScreen(
-                                      comunidad: widget.comunidad,
-                                    ),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(
-                                Icons.how_to_reg_outlined,
-                                size: 18,
-                                color: AppColors.coralRed,
-                              ),
-                              label: Text(
-                                'Revisar ${_solicitudes.length} solicitud(es) pendiente(s)',
-                                style: const TextStyle(
-                                    color: AppColors.coralRed),
-                              ),
-                            ),
-                          ],
-                        ],
+          : (c == null)
+              ? ErrorState(title: 'No se pudo cargar la comunidad', message: _error, onRetry: _cargar)
+              : DashboardLayout(
+                  onRefresh: _cargar,
+                  principal: [
+                    _encabezado(c),
+                    const SizedBox(height: AppSpacing.xl),
+                    const SectionHeader(title: 'Incorporación', subtitle: 'Cómo ingresan los apadrinados con el código'),
+                    const SizedBox(height: AppSpacing.sm),
+                    SelectorModoIncorporacion(valor: c.modoIncorporacion, onChanged: _cambiarModo),
+                    const SizedBox(height: AppSpacing.xl),
+                    SectionHeader(
+                      title: 'Códigos de acceso',
+                      subtitle: 'Compártelos con los apadrinados de la comunidad',
+                      action: TextButton.icon(
+                        onPressed: _generarCodigo,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Generar'),
                       ),
                     ),
-
-                    // Pestañas: Personas · Actividades
-                    TabBar(
-                      controller: _tabController,
-                      dividerColor: AppColors.borderLight,
-                      labelStyle: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      tabs: const [
-                        Tab(text: 'Personas'),
-                        Tab(text: 'Actividades'),
-                      ],
+                    const SizedBox(height: AppSpacing.sm),
+                    if (_codigos.isEmpty)
+                      const EmptyState(
+                        icon: Icons.key_outlined,
+                        title: 'Sin códigos',
+                        description: 'Genera un código para que los apadrinados se incorporen',
+                      )
+                    else
+                      for (final codigo in _codigos)
+                        _CodigoTile(
+                          codigo: codigo,
+                          onCopiar: () => _copiar(codigo),
+                          onDesactivar: codigo.activo ? () => _desactivar(codigo) : null,
+                        ),
+                    const SizedBox(height: AppSpacing.xl),
+                  ],
+                  secundario: [
+                    const SectionHeader(title: 'Gestión', subtitle: 'Solicitudes, módulos y actividades'),
+                    const SizedBox(height: AppSpacing.sm),
+                    _Acceso(
+                      icon: Icons.person_add_alt_1_outlined,
+                      titulo: 'Solicitudes de incorporación',
+                      detalle: _solicitudes == 0 ? 'Sin solicitudes pendientes' : '$_solicitudes pendiente(s)',
+                      destacado: _solicitudes > 0,
+                      onTap: () => _abrir(SolicitudesScreen(comunidadId: c.id)),
                     ),
-                    Expanded(
-                      child: TabBarView(
-                        controller: _tabController,
-                        children: [
-                          _buildTabPersonas(),
-                          _buildTabActividades(),
-                        ],
-                      ),
+                    _Acceso(
+                      icon: Icons.view_module_outlined,
+                      titulo: 'Módulos',
+                      detalle: '${c.totalModulos ?? 0} módulo(s) · crear, renombrar y ordenar',
+                      onTap: () => _abrir(ModulosScreen(comunidadId: c.id, comunidadNombre: c.nombre)),
                     ),
+                    _Acceso(
+                      icon: Icons.assignment_outlined,
+                      titulo: 'Actividades',
+                      detalle: 'Tablero de actividades de la comunidad',
+                      onTap: () => _abrir(TableroActividadesScreen(comunidadId: c.id, titulo: 'Actividades · ${c.nombre}')),
+                    ),
+                    _Acceso(
+                      icon: Icons.history,
+                      titulo: 'Historial de cambios',
+                      detalle: 'Quién hizo qué y cuándo',
+                      onTap: () => _abrir(HistorialScreen(comunidadId: c.id, titulo: 'Historial · ${c.nombre}')),
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    SectionHeader(title: 'Apadrinados', subtitle: '${_apadrinados.length} en la comunidad'),
+                    const SizedBox(height: AppSpacing.sm),
+                    if (_apadrinados.isEmpty)
+                      const EmptyState(
+                        icon: Icons.people_outline,
+                        title: 'Sin apadrinados',
+                        description: 'Se incorporan con el código de acceso',
+                      )
+                    else
+                      for (final a in _apadrinados)
+                        PersonCard(
+                          nombre: a.nombreCompleto.isNotEmpty ? a.nombreCompleto : 'Apadrinado',
+                          subtitle: a.correo ?? '',
+                          detail: a.telefono,
+                          onTap: () => _abrir(ExpedienteDetalleScreen(apadrinadoId: a.id)),
+                        ),
                   ],
                 ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.darkNavy,
-        onPressed: _crearActividad,
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text(
-          'Nueva Actividad',
-          style: TextStyle(color: Colors.white),
-        ),
-      ),
     );
   }
 
-  Widget _buildTabPersonas() {
-    if (_apadrinados.isEmpty) {
-      return const EmptyState(
-        icon: Icons.people_outlined,
-        title: 'Sin apadrinados',
-        description: 'Los apadrinados de esta comunidad aparecerán aquí',
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: _cargarDatos,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        itemCount: _apadrinados.length,
-        itemBuilder: (context, index) {
-          final apad = _apadrinados[index];
-          return PersonCard(
-            nombre: apad.nombre ?? 'Apadrinado',
-            subtitle: apad.comunidadNombre ?? widget.comunidad.nombre,
-            detail: apad.correo,
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ExpedienteDetalleScreen(
-                    apadrinadoId: apad.id,
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildTabActividades() {
-    if (_actividades.isEmpty) {
-      return const EmptyState(
-        icon: Icons.assignment_outlined,
-        title: 'Sin actividades',
-        description:
-            'Las actividades asignadas a esta comunidad aparecerán aquí',
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: _cargarDatos,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        itemCount: _actividades.length,
-        itemBuilder: (context, index) {
-          final act = _actividades[index];
-          return ActivityCard(
-            actividad: act,
-            onTap: () async {
-              final actualizado = await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ActividadDetalleScreen(actividad: act),
-                ),
-              );
-              if (actualizado == true) _cargarDatos();
-            },
-            onEditar: () => _editarActividad(act),
-            onEliminar: () => _eliminarActividad(act),
-          );
-        },
+  Widget _encabezado(Comunidad c) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(color: AppColors.darkNavy, borderRadius: BorderRadius.circular(AppRadius.xl)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(c.nombre, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+          if (c.ubicacion.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(c.ubicacion, style: TextStyle(color: Colors.white.withAlpha(204))),
+          ],
+          const SizedBox(height: AppSpacing.lg),
+          Wrap(
+            spacing: AppSpacing.xl,
+            runSpacing: AppSpacing.sm,
+            children: [
+              _Dato(valor: '${_apadrinados.length}', etiqueta: 'Apadrinados'),
+              _Dato(valor: '${c.totalModulos ?? 0}', etiqueta: 'Módulos'),
+              _Dato(valor: '${_codigos.where((x) => x.activo).length}', etiqueta: 'Códigos activos'),
+              _Dato(valor: '$_solicitudes', etiqueta: 'Solicitudes'),
+            ],
+          ),
+        ],
       ),
     );
   }
 }
 
-class _Stat extends StatelessWidget {
-  final String value;
-  final String label;
+class _Dato extends StatelessWidget {
+  final String valor;
+  final String etiqueta;
 
-  const _Stat({required this.value, required this.label});
+  const _Dato({required this.valor, required this.etiqueta});
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: AppColors.charcoal,
+        Text(valor, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+        Text(etiqueta, style: TextStyle(color: Colors.white.withAlpha(180), fontSize: 12)),
+      ],
+    );
+  }
+}
+
+class _Acceso extends StatelessWidget {
+  final IconData icon;
+  final String titulo;
+  final String detalle;
+  final bool destacado;
+  final VoidCallback onTap;
+
+  const _Acceso({
+    required this.icon,
+    required this.titulo,
+    required this.detalle,
+    required this.onTap,
+    this.destacado = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = destacado ? AppColors.coralRed : AppColors.darkNavy;
+    return AppCard(
+      onTap: onTap,
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(titulo, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.charcoal)),
+                Text(detalle, style: TextStyle(fontSize: 12, color: destacado ? color : AppColors.textSecondary)),
+              ],
+            ),
           ),
+          const Icon(Icons.chevron_right, color: AppColors.textTertiary),
+        ],
+      ),
+    );
+  }
+}
+
+class _CodigoTile extends StatelessWidget {
+  final CodigoAcceso codigo;
+  final VoidCallback onCopiar;
+  final VoidCallback? onDesactivar;
+
+  const _CodigoTile({required this.codigo, required this.onCopiar, this.onDesactivar});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = codigo;
+    final color = c.activo ? AppColors.sageGreen : AppColors.textTertiary;
+    final detalles = <String>[
+      c.maxUsos != null ? '${c.usos} de ${c.maxUsos} usos' : '${c.usos} usos',
+      if (c.fechaExpiracion != null) 'vence ${AppDateUtils.formatDate(c.fechaExpiracion)}',
+      if (c.descripcion != null && c.descripcion!.isNotEmpty) c.descripcion!,
+    ];
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        children: [
+          Icon(Icons.key, color: color),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: SelectableText(
+                        c.codigo,
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.5,
+                          color: c.activo ? AppColors.charcoal : AppColors.textTertiary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: color.withAlpha(26),
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                      ),
+                      child: Text(c.activo ? 'Activo' : 'Inactivo',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+                    ),
+                  ],
+                ),
+                Text(detalles.join(' · '), style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              ],
+            ),
+          ),
+          if (c.activo)
+            IconButton(tooltip: 'Copiar', icon: const Icon(Icons.copy), onPressed: onCopiar),
+          if (onDesactivar != null)
+            IconButton(
+              tooltip: 'Desactivar',
+              icon: const Icon(Icons.block, color: AppColors.coralRed),
+              onPressed: onDesactivar,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DatosCodigo {
+  final int? maxUsos;
+  final DateTime? expira;
+  final String? descripcion;
+
+  _DatosCodigo(this.maxUsos, this.expira, this.descripcion);
+}
+
+class _GenerarCodigoDialog extends StatefulWidget {
+  const _GenerarCodigoDialog();
+
+  @override
+  State<_GenerarCodigoDialog> createState() => _GenerarCodigoDialogState();
+}
+
+class _GenerarCodigoDialogState extends State<_GenerarCodigoDialog> {
+  final _usos = TextEditingController();
+  final _descripcion = TextEditingController();
+  DateTime? _expira;
+
+  @override
+  void dispose() {
+    _usos.dispose();
+    _descripcion.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Generar código de acceso'),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _usos,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Máximo de usos (opcional)',
+                hintText: 'Sin límite',
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              controller: _descripcion,
+              decoration: const InputDecoration(labelText: 'Descripción (opcional)'),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.event),
+              label: Text(_expira == null ? 'Sin fecha de vencimiento' : 'Vence: ${AppDateUtils.formatShort(_expira!.toIso8601String())}'),
+              onPressed: () async {
+                final hoy = DateTime.now();
+                final f = await showDatePicker(
+                  context: context,
+                  initialDate: hoy.add(const Duration(days: 90)),
+                  firstDate: hoy,
+                  lastDate: hoy.add(const Duration(days: 730)),
+                );
+                if (f != null) setState(() => _expira = DateTime(f.year, f.month, f.day, 23, 59));
+              },
+            ),
+          ],
         ),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: AppColors.textSecondary,
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(
+            context,
+            _DatosCodigo(int.tryParse(_usos.text), _expira, _descripcion.text.trim().isEmpty ? null : _descripcion.text.trim()),
           ),
-          textAlign: TextAlign.center,
+          child: const Text('Generar'),
         ),
       ],
     );

@@ -15,6 +15,8 @@ public interface CartaRepository extends JpaRepository<Carta, Long> {
     List<Carta> findByApadrinadoId(Long apadrinadoId);
     List<Carta> findByExpedienteId(Long expedienteId);
     List<Carta> findByActividadId(Long actividadId);
+
+    List<Carta> findByEntregaId(Long entregaId);
     List<Carta> findByEstado(EstadoCarta estado);
     List<Carta> findByApadrinadoIdAndEstado(Long apadrinadoId, EstadoCarta estado);
 

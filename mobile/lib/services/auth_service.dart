@@ -78,6 +78,64 @@ class AuthService extends ChangeNotifier {
     }
   }
 
+  /// Registro público: crea una cuenta de apadrinado e inicia sesión.
+  Future<AuthUser> registrar({
+    required String nombre,
+    String? apellido,
+    required String correo,
+    required String password,
+    String? telefono,
+    String? direccion,
+    String? fechaNacimiento,
+  }) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final response = await _api.post('/api/auth/register', {
+        'nombre': nombre.trim(),
+        'apellido': apellido?.trim(),
+        'correo': correo.trim(),
+        'password': password,
+        'telefono': telefono?.trim(),
+        'direccion': direccion?.trim(),
+        'fechaNacimiento': fechaNacimiento,
+      });
+      final user = AuthUser.fromJson(response);
+      await _guardarSesion(user);
+      return user;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Vuelve a consultar el perfil (ej. cuando el apadrinado es aceptado
+  /// en una comunidad) conservando el token actual.
+  Future<AuthUser?> refrescarPerfil() async {
+    final actual = _currentUser;
+    if (actual == null) return null;
+    final response = await _api.get('/api/auth/perfil');
+    final datos = AuthUser.fromJson({...Map<String, dynamic>.from(response), 'token': actual.token});
+    await _guardarSesion(datos);
+    notifyListeners();
+    return datos;
+  }
+
+  /// Actualiza el nombre mostrado tras editar el perfil.
+  Future<void> actualizarNombre(String nombre) async {
+    final actual = _currentUser;
+    if (actual == null) return;
+    await _guardarSesion(actual.copyWith(nombre: nombre));
+    notifyListeners();
+  }
+
+  Future<void> _guardarSesion(AuthUser user) async {
+    _currentUser = user;
+    await _api.setToken(user.token);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('current_user', jsonEncode(user.toJson()));
+  }
+
   Future<void> logout() async {
     _currentUser = null;
     await _api.setToken(null);

@@ -1,355 +1,208 @@
 import 'package:flutter/material.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/network/api_client.dart';
 import '../../core/theme/app_colors.dart';
-import '../../core/utils/date_utils.dart';
-import '../../core/utils/file_export.dart';
 import '../../core/utils/responsive.dart';
+import '../../services/actividad_service.dart';
+import '../../services/comunidad_service.dart';
 import '../../services/expediente_service.dart';
-import '../../shared/models/actividad_comunidad_resumen.dart';
+import '../../shared/models/actividad.dart';
 import '../../shared/models/comunidad.dart';
-import '../../shared/widgets/app_card.dart';
+import '../../shared/widgets/actividad_widgets.dart';
+import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/states.dart';
+import '../actividades/actividad_detalle_screen.dart';
 
-/// Expedientes por actividad (Coordinador).
-///
-/// Genera, para una actividad de una comunidad, un expediente PDF o
-/// ZIP con el estado y las evidencias de cada apadrinado. Por defecto
-/// incluye solo las entregas aprobadas.
+/// Expedientes por actividad: PDF y carpeta ZIP de una tarea con las
+/// entregas aprobadas de los apadrinados de la comunidad.
 class ExpedienteActividadScreen extends StatefulWidget {
   const ExpedienteActividadScreen({super.key});
 
   @override
-  State<ExpedienteActividadScreen> createState() =>
-      _ExpedienteActividadScreenState();
+  State<ExpedienteActividadScreen> createState() => _ExpedienteActividadScreenState();
 }
 
 class _ExpedienteActividadScreenState extends State<ExpedienteActividadScreen> {
-  final _expedienteService = ExpedienteService();
+  final _actividadService = ActividadService();
 
   List<Comunidad> _comunidades = [];
-  Comunidad? _comunidad;
-  List<ActividadComunidadResumen> _actividades = [];
-  bool _soloAprobadas = true;
-
-  bool _cargandoComunidades = true;
-  bool _cargandoActividades = false;
+  List<Actividad> _tareas = [];
+  int? _comunidadId;
+  bool _isLoading = true;
   String? _error;
-
-  /// Descarga en curso: `{actividadId}-pdf` o `{actividadId}-zip`.
-  String? _descargando;
+  final Map<int, String> _exportando = {};
 
   @override
   void initState() {
     super.initState();
-    _cargarComunidades();
+    _cargar();
   }
 
-  Future<void> _cargarComunidades() async {
+  Future<void> _cargar() async {
     setState(() {
-      _cargandoComunidades = true;
+      _isLoading = _tareas.isEmpty;
       _error = null;
     });
     try {
-      final comunidades = await _expedienteService.listarMisComunidades();
-      if (!mounted) return;
-      setState(() {
-        _comunidades = comunidades;
-        _cargandoComunidades = false;
-      });
-      if (comunidades.length == 1) _seleccionarComunidad(comunidades.first);
+      final r = await Future.wait([
+        ComunidadService().listar(),
+        _actividadService.tablero(comunidadId: _comunidadId, tipo: TipoActividad.tarea),
+      ]);
+      if (mounted) {
+        setState(() {
+          _comunidades = r[0] as List<Comunidad>;
+          _tareas = r[1] as List<Actividad>;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _cargandoComunidades = false;
-        _error = e.toString().replaceAll('Exception: ', '');
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = mensajeDeError(e);
+        });
+      }
     }
   }
 
-  Future<void> _seleccionarComunidad(Comunidad comunidad) async {
-    setState(() {
-      _comunidad = comunidad;
-      _actividades = [];
-      _cargandoActividades = true;
-      _error = null;
-    });
+  Future<void> _exportar(Actividad a, bool pdf) async {
+    setState(() => _exportando[a.id] = pdf ? 'pdf' : 'zip');
     try {
-      final actividades =
-          await _expedienteService.listarActividadesDeComunidad(comunidad.id);
-      if (!mounted || _comunidad?.id != comunidad.id) return;
-      setState(() {
-        _actividades = actividades;
-        _cargandoActividades = false;
-      });
+      final e = pdf ? await _actividadService.exportarPdf(a.id) : await _actividadService.exportarZip(a.id);
+      final msg = await ExpedienteService().descargarYAbrir(e);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _cargandoActividades = false;
-        _error = e.toString().replaceAll('Exception: ', '');
-      });
-    }
-  }
-
-  Future<void> _descargar(ActividadComunidadResumen act, {required bool zip}) async {
-    final comunidad = _comunidad;
-    if (comunidad == null) return;
-    setState(() => _descargando = '${act.actividadId}-${zip ? 'zip' : 'pdf'}');
-
-    try {
-      final bytes = await _expedienteService.descargarExpedienteActividad(
-        act.actividadId,
-        comunidadId: comunidad.id,
-        soloAprobadas: _soloAprobadas,
-        zip: zip,
-      );
-      final mensaje = await guardarYAbrirArchivo(
-        bytes,
-        nombre: 'Expediente_Actividad_${act.actividadId}.${zip ? 'zip' : 'pdf'}',
-        mimeType: zip ? 'application/zip' : 'application/pdf',
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mensaje), backgroundColor: AppColors.sageGreen),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al generar el expediente: '
-              '${e.toString().replaceAll('Exception: ', '')}'),
-          backgroundColor: AppColors.coralRed,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(mensajeDeError(e)), backgroundColor: AppColors.coralRed),
+        );
+      }
     } finally {
-      if (mounted) setState(() => _descargando = null);
+      if (mounted) setState(() => _exportando.remove(a.id));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final conAprobadas = _tareas.where((a) => (a.resumen?.aprobados ?? 0) > 0).length;
     return Scaffold(
       appBar: AppBar(title: const Text('Expedientes por actividad')),
-      body: _cargandoComunidades
-          ? const LoadingState(message: 'Cargando comunidades...')
-          : _comunidades.isEmpty
-              ? (_error != null
-                  ? ErrorState(
-                      title: 'No se pudieron cargar tus comunidades',
-                      message: _error,
-                      onRetry: _cargarComunidades,
-                    )
-                  : const EmptyState(
-                      icon: Icons.location_city_outlined,
-                      title: 'Sin comunidades',
-                      description:
-                          'Necesitas tener comunidades asignadas para generar expedientes.',
-                    ))
-              : _buildContenido(),
-    );
-  }
-
-  Widget _buildContenido() {
-    return RefreshIndicator(
-      onRefresh: () async {
-        if (_comunidad != null) await _seleccionarComunidad(_comunidad!);
-      },
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
-        children: [
-          ResponsiveContent(
-            maxWidth: 760,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                DropdownButtonFormField<int>(
-                  value: _comunidad?.id,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Comunidad',
-                    prefixIcon: Icon(Icons.location_city_outlined),
-                  ),
-                  items: [
-                    for (final c in _comunidades)
-                      DropdownMenuItem(
-                        value: c.id,
-                        child: Text(c.nombre, overflow: TextOverflow.ellipsis),
+      body: _isLoading
+          ? const LoadingState(message: 'Cargando actividades...')
+          : _error != null && _tareas.isEmpty
+              ? ErrorState(title: 'No se pudieron cargar las actividades', message: _error, onRetry: _cargar)
+              : RefreshIndicator(
+                  onRefresh: _cargar,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+                    children: [
+                      ResponsiveContent(
+                        maxWidth: 900,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text(
+                              'Genera el expediente PDF o la carpeta ZIP de una tarea. Solo se incluyen las '
+                              'entregas aprobadas, por eso la opción se habilita cuando hay al menos una.',
+                              style: TextStyle(color: AppColors.textSecondary),
+                            ),
+                            if (_comunidades.length > 1) ...[
+                              const SizedBox(height: AppSpacing.md),
+                              Wrap(
+                                spacing: AppSpacing.sm,
+                                runSpacing: AppSpacing.sm,
+                                children: [
+                                  FilterChipWidget(
+                                    label: 'Todas',
+                                    selected: _comunidadId == null,
+                                    onSelected: () {
+                                      setState(() => _comunidadId = null);
+                                      _cargar();
+                                    },
+                                  ),
+                                  for (final c in _comunidades)
+                                    FilterChipWidget(
+                                      label: c.nombre,
+                                      selected: _comunidadId == c.id,
+                                      onSelected: () {
+                                        setState(() => _comunidadId = c.id);
+                                        _cargar();
+                                      },
+                                    ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: AppSpacing.sm),
+                            Text('${_tareas.length} tareas · $conAprobadas con entregas aprobadas',
+                                style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
+                          ],
+                        ),
                       ),
-                  ],
-                  onChanged: (id) {
-                    if (id == null) return;
-                    _seleccionarComunidad(_comunidades.firstWhere((c) => c.id == id));
-                  },
+                      const SizedBox(height: AppSpacing.sm),
+                      if (_tareas.isEmpty)
+                        const EmptyState(icon: Icons.assignment_outlined, title: 'Sin tareas')
+                      else
+                        ResponsiveContent(
+                          maxWidth: 900,
+                          padding: EdgeInsets.zero,
+                          child: Column(
+                            children: [
+                              for (final a in _tareas)
+                                ActividadTableroCard(
+                                  actividad: a,
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => ActividadDetalleScreen(actividadId: a.id)),
+                                  ),
+                                  trailing: _Botones(
+                                    habilitado: (a.resumen?.aprobados ?? 0) > 0,
+                                    exportando: _exportando[a.id],
+                                    onPdf: () => _exportar(a, true),
+                                    onZip: () => _exportar(a, false),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Solo entregas aprobadas'),
-                  subtitle: Text(_soloAprobadas
-                      ? 'Incluye únicamente a los apadrinados con la actividad aprobada'
-                      : 'Incluye a todos los apadrinados de la comunidad'),
-                  value: _soloAprobadas,
-                  onChanged: (v) => setState(() => _soloAprobadas = v),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                ..._buildActividades(),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildActividades() {
-    if (_comunidad == null) {
-      return const [
-        EmptyState(
-          icon: Icons.touch_app_outlined,
-          title: 'Elige una comunidad',
-          description: 'Verás sus actividades para generar el expediente.',
-        ),
-      ];
-    }
-    if (_cargandoActividades) {
-      return const [LoadingState(message: 'Cargando actividades...')];
-    }
-    if (_error != null) {
-      return [
-        ErrorState(
-          title: 'No se pudieron cargar las actividades',
-          message: _error,
-          onRetry: () => _seleccionarComunidad(_comunidad!),
-        ),
-      ];
-    }
-    if (_actividades.isEmpty) {
-      return const [
-        EmptyState(
-          icon: Icons.assignment_outlined,
-          title: 'Sin actividades',
-          description: 'Esta comunidad todavía no tiene actividades asignadas.',
-        ),
-      ];
-    }
-    return [
-      for (final act in _actividades)
-        Padding(
-          padding: const EdgeInsets.only(bottom: AppSpacing.md),
-          child: _ActividadExpedienteCard(
-            actividad: act,
-            soloAprobadas: _soloAprobadas,
-            descargando: _descargando,
-            onDescargar: (zip) => _descargar(act, zip: zip),
-          ),
-        ),
-    ];
-  }
-}
-
-class _ActividadExpedienteCard extends StatelessWidget {
-  final ActividadComunidadResumen actividad;
-  final bool soloAprobadas;
-  final String? descargando;
-  final void Function(bool zip) onDescargar;
-
-  const _ActividadExpedienteCard({
-    required this.actividad,
-    required this.soloAprobadas,
-    required this.descargando,
-    required this.onDescargar,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final total = actividad.totalAsignadas;
-    final aprobadas = actividad.totalAprobadas;
-    final sinAprobadas = soloAprobadas && aprobadas == 0;
-    final ocupado = descargando != null;
-
-    Widget boton({required bool zip}) {
-      final cargando = descargando == '${actividad.actividadId}-${zip ? 'zip' : 'pdf'}';
-      final icono = cargando
-          ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Icon(zip ? Icons.archive_outlined : Icons.picture_as_pdf_outlined, size: 18);
-      final onPressed = (ocupado || sinAprobadas) ? null : () => onDescargar(zip);
-      return zip
-          ? OutlinedButton.icon(onPressed: onPressed, icon: icono, label: const Text('ZIP'))
-          : FilledButton.icon(onPressed: onPressed, icon: icono, label: const Text('PDF'));
-    }
-
-    return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            actividad.titulo,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.xs,
-            children: [
-              _Dato(
-                icon: Icons.event_outlined,
-                texto: 'Creada ${AppDateUtils.formatShort(actividad.fechaCreacion)}',
-              ),
-              if (actividad.fechaLimite != null)
-                _Dato(
-                  icon: Icons.flag_outlined,
-                  texto: 'Límite ${AppDateUtils.formatShort(actividad.fechaLimite)}',
-                ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-          ProgressBar(
-            value: total == 0 ? 0 : aprobadas / total,
-            label: 'Aprobadas: $aprobadas de $total',
-            color: AppColors.sageGreen,
-          ),
-          if (sinAprobadas) ...[
-            const SizedBox(height: AppSpacing.sm),
-            const Text(
-              'Aún no hay entregas aprobadas para esta actividad.',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-            ),
-          ],
-          const SizedBox(height: AppSpacing.md),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: [boton(zip: true), boton(zip: false)],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
 
-class _Dato extends StatelessWidget {
-  final IconData icon;
-  final String texto;
+class _Botones extends StatelessWidget {
+  final bool habilitado;
+  final String? exportando;
+  final VoidCallback onPdf;
+  final VoidCallback onZip;
 
-  const _Dato({required this.icon, required this.texto});
+  const _Botones({required this.habilitado, required this.exportando, required this.onPdf, required this.onZip});
 
   @override
   Widget build(BuildContext context) {
+    if (exportando != null) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    final ayuda = habilitado ? null : 'Requiere al menos una entrega aprobada';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 14, color: AppColors.textSecondary),
-        const SizedBox(width: AppSpacing.xs),
-        Text(texto, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+        IconButton(
+          tooltip: ayuda ?? 'Expediente PDF',
+          icon: Icon(Icons.picture_as_pdf_outlined, color: habilitado ? AppColors.coralRed : AppColors.textTertiary),
+          onPressed: habilitado ? onPdf : null,
+        ),
+        IconButton(
+          tooltip: ayuda ?? 'Carpeta ZIP',
+          icon: Icon(Icons.folder_zip_outlined, color: habilitado ? AppColors.darkNavy : AppColors.textTertiary),
+          onPressed: habilitado ? onZip : null,
+        ),
       ],
     );
   }

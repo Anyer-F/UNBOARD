@@ -48,21 +48,32 @@ class AppDateUtils {
     return dt == null ? iso : _dayMonth.format(dt.toLocal());
   }
 
-  /// `true` si la fecha límite ya pasó.
+  /// `true` si la fecha límite ya pasó. Una fecha sin hora (yyyy-MM-dd)
+  /// vence al terminar ese día.
   static bool isOverdue(String? iso) {
     if (iso == null || iso.isEmpty) return false;
     final dt = _parse(iso);
     if (dt == null) return false;
+    if (iso.length <= 10) return daysUntil(iso) < 0;
     return dt.toLocal().isBefore(DateTime.now());
   }
 
-  /// Días restantes hasta la fecha (negativos si ya venció).
+  /// Días de calendario restantes hasta la fecha (0 = hoy, negativos si
+  /// ya venció).
   static int daysUntil(String? iso) {
     if (iso == null || iso.isEmpty) return 0;
     final dt = _parse(iso);
     if (dt == null) return 0;
-    return dt.toLocal().difference(DateTime.now()).inDays;
+    final local = dt.toLocal();
+    final ahora = DateTime.now();
+    return DateTime(local.year, local.month, local.day)
+        .difference(DateTime(ahora.year, ahora.month, ahora.day))
+        .inDays;
   }
+
+  /// Fecha para enviar al backend: `2026-10-15`.
+  static String toApiDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   static DateTime? _parse(String iso) {
     try {

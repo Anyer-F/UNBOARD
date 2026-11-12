@@ -1,0 +1,550 @@
+Descripción del proyecto
+UNBOARD: Aplicación móvil para la gestión documental remota mediante expedientes digitales para la Fundación UNBOUND, sede Huehuetenango
+
+El proyecto consiste en el desarrollo de UNBOARD, una aplicación móvil para la gestión documental remota y el seguimiento de actividades de la Fundación UNBOUND, sede Huehuetenango, orientada a facilitar la interacción entre los coordinadores de proyecto y los apadrinados.
+
+UNBOARD busca centralizar y organizar la información que actualmente puede encontrarse distribuida en conversaciones, fotografías almacenadas en diferentes dispositivos, documentos físicos o digitales y otros medios utilizados para dar seguimiento a los apadrinados. De esta manera, se pretende reducir la duplicación de información, facilitar la localización de documentos, mejorar el seguimiento de actividades y mantener organizada la información correspondiente a cada apadrinado.
+
+El elemento principal de UNBOARD será el expediente digital del apadrinado, mediante el cual se podrá concentrar y organizar la información relacionada con cada persona. El expediente podrá contener datos personales, actividades, documentos institucionales, fotografías, cartas, evidencias, observaciones y un historial de cambios. A partir de esta información, el coordinador podrá generar expedientes en formato PDF y carpetas comprimidas .zip con los archivos trabajados por los apadrinados, filtrados por intervalo de tiempo o por actividad.
+
+UNBOARD estará diseñada para funcionar mediante una arquitectura compuesta por una aplicación móvil, un backend encargado de gestionar la lógica del sistema y los servicios de autenticación, autorización, actividades, documentos, expedientes, exportación (PDF y ZIP) y notificaciones, además de una base de datos centralizada para almacenar la información estructurada del sistema. Los archivos serán almacenados mediante un repositorio remoto de documentos, manteniendo en la base de datos las referencias y metadatos necesarios para su organización y consulta.
+
+A diferencia de un sistema que funcione únicamente de manera local, la solución será preparada para un despliegue remoto, de forma que el backend, la base de datos y el almacenamiento de archivos puedan encontrarse disponibles mediante Internet. Esto permitirá que coordinadores y apadrinados puedan utilizar UNBOARD desde diferentes dispositivos y ubicaciones, facilitando el intercambio de información y documentos entre ellos.
+
+Usuarios y control de acceso
+
+UNBOARD contará principalmente con dos roles de usuario:
+
+Coordinador
+Apadrinado
+
+El sistema implementará un mecanismo de control de acceso basado en roles (RBAC, Role-Based Access Control). Cada usuario tendrá acceso únicamente a las funciones y recursos correspondientes a su rol.
+
+Después de autenticarse, el sistema identificará el rol del usuario y presentará las funcionalidades disponibles para este. El control no se limitará únicamente a ocultar opciones en la interfaz móvil, sino que el backend también deberá validar la identidad, el rol y los permisos del usuario antes de permitir operaciones protegidas.
+
+De esta forma, un apadrinado no podrá acceder a funciones exclusivas de los coordinadores (gestión de actividades, revisión de entregas, expedientes, generación de PDF y generación de ZIP) mediante solicitudes directas al backend, mientras que un coordinador podrá acceder únicamente a las comunidades y apadrinados que se encuentren bajo su responsabilidad.
+
+El flujo general de acceso será:
+
+Registro → Autenticación → Identificación del rol → Acceso a funciones y recursos autorizados.
+
+Coordinador
+
+El coordinador podrá administrar las comunidades bajo su responsabilidad, gestionar los apadrinados asociados, crear y administrar actividades, proporcionar material de apoyo, dar seguimiento a las entregas hasta su aprobación y generar los expedientes en PDF y las carpetas .zip de los apadrinados y de las actividades.
+
+Entre sus principales funciones estarán:
+
+Gestionar sus comunidades.
+Generar y administrar códigos de acceso de las comunidades.
+Revisar solicitudes de incorporación.
+Consultar los perfiles de los usuarios que soliciten incorporarse.
+Aceptar o rechazar solicitudes.
+Consultar los apadrinados pertenecientes a sus comunidades.
+Consultar y gestionar expedientes digitales.
+Crear y administrar módulos dentro de sus comunidades para organizar las actividades.
+Crear, consultar, editar y eliminar actividades dentro de un módulo de una comunidad (CRUD de actividades).
+Crear actividades de tipo Tarea, Anuncio o Material de apoyo.
+Subir contenido a las actividades, como documentos y fotografías.
+Asignar actividades a toda la comunidad o a los apadrinados de la comunidad que seleccione.
+Definir fechas límite y requisitos de entrega.
+Consultar el tablero de actividades.
+Dar seguimiento a cada actividad asignada hasta que sea completada satisfactoriamente.
+Revisar documentos, fotografías, cartas y evidencias enviadas.
+Escribir sugerencias de mejora para que el apadrinado corrija su entrega.
+Aprobar entregas.
+Generar expedientes en PDF de un apadrinado según un intervalo de tiempo.
+Generar expedientes en PDF de una actividad asignada a una comunidad, con las entregas aprobadas.
+Generar carpetas .zip con los archivos trabajados por un apadrinado en sus entregas aprobadas, según un intervalo de tiempo.
+Generar carpetas .zip con los archivos subidos por los apadrinados en una actividad, con las entregas aprobadas.
+Consultar el historial de cambios.
+
+Apadrinado
+
+El apadrinado podrá crear y administrar su perfil, incorporarse a una comunidad mediante un código proporcionado por el coordinador, consultar su comunidad organizada en módulos, consultar su tablero de actividades pendientes y realizar las entregas de las actividades que le sean asignadas.
+
+Entre sus principales funciones estarán:
+
+Crear su perfil.
+Solicitar incorporación a una comunidad.
+Consultar el estado de su solicitud.
+Consultar su comunidad y coordinador responsable.
+Consultar los módulos de su comunidad con las actividades que ha realizado y las que tiene en proceso.
+Consultar su tablero de actividades pendientes por realizar.
+Consultar anuncios publicados por el coordinador.
+Consultar instrucciones y material de apoyo.
+Subir documentos.
+Subir fotografías.
+Escribir cartas.
+Adjuntar evidencias.
+Agregar comentarios a su entrega.
+Enviar actividades para revisión.
+Consultar si sus entregas han sido aprobadas o no.
+Consultar las sugerencias de mejora del coordinador y corregir la entrega.
+Recibir notificaciones.
+Consultar y actualizar la información permitida de su perfil.
+
+El apadrinado no tendrá ninguna función relacionada con expedientes (ni consulta ni generación de PDF) ni con la generación de carpetas .zip. Tampoco podrá acceder a las funciones administrativas correspondientes al coordinador.
+
+Gestión de comunidades
+
+UNBOARD incorporará el concepto de Comunidades para organizar a los apadrinados de acuerdo con las comunidades o lugares que sean administrados por cada coordinador.
+
+Un coordinador podrá administrar una o varias comunidades, por ejemplo:
+
+Aldea X.
+Aldea Y.
+Aldea Z.
+
+Cada comunidad tendrá un código de acceso generado por el sistema, que podrá ser compartido por el coordinador con los apadrinados correspondientes.
+
+El apadrinado podrá introducir este código durante el proceso de incorporación a una comunidad. Dependiendo de la configuración definida para la comunidad, la incorporación podrá manejarse mediante una solicitud que deberá ser revisada por el coordinador o mediante un ingreso directo controlado por el código.
+
+Cuando se utilice el mecanismo de solicitud, el coordinador podrá consultar el perfil del solicitante antes de aceptar o rechazar su incorporación.
+
+UNBOARD deberá evitar que los usuarios puedan cambiar libremente de comunidad sin autorización, manteniendo el control de pertenencia y responsabilidad dentro del sistema.
+
+La comunidad es el contenedor de las actividades: toda actividad se crea dentro de un módulo de una comunidad y solo puede asignarse a apadrinados que pertenezcan a ella.
+
+Módulos de la comunidad
+
+Dentro de cada comunidad, las actividades se organizarán en módulos (por ejemplo: "Módulo 1: Bienvenida", "Módulo 2: Educación", "Módulo 3: Salud").
+
+Al crearse una comunidad, el sistema creará automáticamente el Módulo 1, un módulo universal que acapara todas las actividades de la comunidad. Mientras el coordinador no cree otro módulo, toda actividad que se cree quedará en el Módulo 1, sin que el coordinador tenga que elegir un módulo.
+
+El coordinador podrá:
+
+Crear nuevos módulos (Módulo 2, Módulo 3, etc.), con nombre, descripción y orden.
+Renombrar y reordenar los módulos, incluido el Módulo 1.
+Mover actividades de un módulo a otro.
+Eliminar módulos que no contengan actividades. Para eliminar un módulo con actividades, primero deberá moverlas a otro módulo.
+
+Una vez que exista más de un módulo, al crear una actividad el coordinador deberá elegir el módulo al que pertenece. Las actividades que ya estaban en el Módulo 1 permanecerán ahí hasta que el coordinador decida moverlas. Una comunidad siempre tendrá al menos un módulo.
+
+Expediente digital del apadrinado
+
+El expediente digital será uno de los componentes centrales de UNBOARD y será gestionado exclusivamente por el coordinador.
+
+Cada apadrinado contará con un expediente donde se organizará la información generada durante su participación y las actividades realizadas.
+
+El expediente podrá contener:
+
+Datos personales.
+Información de la comunidad.
+Actividades.
+Documentos.
+Fotografías.
+Cartas.
+Evidencias.
+Observaciones y sugerencias.
+Historial de cambios.
+
+La información será organizada de manera estructurada para facilitar su consulta y evitar que los documentos relacionados con un mismo apadrinado permanezcan dispersos en diferentes medios.
+
+El expediente se irá actualizando conforme se registren nuevas actividades, documentos, fotografías, cartas, observaciones y revisiones.
+
+El expediente digital es la fuente de información a partir de la cual el coordinador genera los expedientes en PDF y las carpetas .zip descritos en la sección "Generación de expedientes PDF y carpetas ZIP".
+
+Gestión de actividades
+
+Las actividades son el medio principal de interacción entre el coordinador y los apadrinados. Toda actividad se crea dentro de un módulo de una comunidad (el Módulo 1 si el coordinador no ha creado otros).
+
+Tipos de actividad
+
+Al crear una actividad, el coordinador deberá seleccionar uno de los siguientes tipos:
+
+Tarea: actividad que requiere que el apadrinado realice una entrega (documentos, fotografías, cartas o evidencias). Pasa por el proceso de revisión y aprobación del coordinador.
+Anuncio: actividad informativa que el coordinador utiliza para proporcionar información a los apadrinados. No requiere entrega ni aprobación.
+Material de apoyo: actividad en la cual el coordinador solo sube archivos de apoyo (documentos, imágenes, formularios, material educativo) que el apadrinado puede consultar y descargar. No requiere entrega ni aprobación.
+
+La aplicación móvil mostrará el formulario de creación según el tipo seleccionado: solo las actividades de tipo Tarea permitirán definir fecha límite y requisitos de entrega.
+
+Operaciones sobre actividades (CRUD)
+
+El coordinador podrá:
+
+Crear actividades dentro de una comunidad y asignarlas.
+Consultar (leer) las actividades creadas y su detalle.
+Editar (actualizar) el nombre, la descripción, las instrucciones, la fecha límite, los requisitos, el contenido adjunto, el módulo y los apadrinados asignados.
+Eliminar actividades.
+
+Cuando una actividad sea editada, los apadrinados asignados serán notificados del cambio.
+
+Cuando una actividad que ya tenga entregas sea eliminada, el sistema solicitará confirmación y realizará una eliminación lógica (la actividad deja de mostrarse, pero sus entregas y archivos se conservan en el expediente y en el historial) para no perder la trazabilidad. Una actividad sin entregas podrá eliminarse de forma definitiva.
+
+Contenido de una actividad
+
+Cada actividad podrá contener:
+
+Tipo de actividad (Tarea, Anuncio o Material de apoyo).
+Nombre.
+Descripción.
+Instrucciones.
+Contenido subido por el coordinador: documentos y fotografías.
+Fecha límite (solo Tarea).
+Documentos requeridos (solo Tarea).
+Fotografías requeridas (solo Tarea).
+Cartas u otros contenidos requeridos (solo Tarea).
+Comunidad a la que pertenece.
+Módulo al que pertenece.
+Apadrinados asignados.
+Estado de la actividad para cada apadrinado.
+
+Asignación de actividades
+
+Al crear o editar una actividad, el coordinador podrá elegir entre:
+
+Asignarla a toda la comunidad: todos los apadrinados que pertenecen a la comunidad la reciben.
+Asignarla a apadrinados seleccionados: el coordinador elige, de la lista de apadrinados de la comunidad, a uno o varios.
+
+Por cada apadrinado asignado, el sistema creará un registro de asignación propio, de forma que el coordinador pueda dar seguimiento individual al estado de cada apadrinado dentro de la misma actividad.
+
+Los apadrinados recibirán una notificación cuando tengan una nueva actividad, anuncio o material de apoyo asignado.
+
+Estados de las actividades
+
+Las actividades de tipo Tarea manejarán, para cada apadrinado asignado, los siguientes estados:
+
+Pendiente: asignada, el apadrinado aún no ha comenzado.
+En progreso: el apadrinado ha comenzado a preparar su entrega.
+Enviado: el apadrinado envió su entrega.
+En revisión: el coordinador está revisando la entrega.
+Corrección solicitada: el coordinador escribió sugerencias y el apadrinado debe corregir.
+Aprobado: el coordinador aprobó la entrega; la actividad se considera completada satisfactoriamente.
+Vencido: la fecha límite pasó sin que la entrega fuera enviada.
+
+Las actividades de tipo Anuncio y Material de apoyo manejarán únicamente los estados:
+
+Publicado.
+Visto (cuando el apadrinado la abre).
+
+Material de apoyo
+
+Como parte de la gestión de actividades, el coordinador podrá proporcionar material de apoyo para facilitar que los apadrinados comprendan y realicen las actividades. El material podrá subirse dentro de una actividad de tipo Tarea o como una actividad independiente de tipo Material de apoyo.
+
+Este material podrá incluir:
+
+Documentos PDF.
+Formularios.
+Imágenes y fotografías.
+Instrucciones.
+Documentos de referencia.
+Material educativo.
+
+El material estará asociado a la actividad correspondiente y podrá ser consultado por los apadrinados asignados.
+
+Esta función permitirá diferenciar entre el material proporcionado por el coordinador y los documentos o evidencias que posteriormente serán entregados por el apadrinado.
+
+Tablero de actividades del coordinador
+
+El coordinador contará con un tablero de actividades que le permitirá visualizar de manera general todas las actividades que ha creado y crear nuevas actividades.
+
+El tablero mostrará:
+
+Las actividades creadas, agrupadas o filtradas por comunidad, por módulo y por tipo (Tarea, Anuncio, Material de apoyo).
+Para cada Tarea: fecha límite y un resumen del avance (cantidad de apadrinados asignados, pendientes, enviados por revisar, con corrección solicitada y aprobados).
+Un acceso directo para crear una nueva actividad y asignarla a una comunidad.
+Un acceso para crear y administrar los módulos de cada comunidad.
+
+Al seleccionar una actividad del tablero, el coordinador verá su detalle con la lista de apadrinados asignados y el estado de cada uno, desde donde podrá entrar a revisar cada entrega. Desde el detalle también podrá editar o eliminar la actividad y generar el expediente PDF y la carpeta .zip de la actividad.
+
+Comunidad y módulos del apadrinado
+
+El apadrinado podrá ver la comunidad a la que pertenece, con su coordinador responsable, y los módulos creados por el coordinador (o el Módulo 1 universal si el coordinador no ha creado otros), en el orden definido por él.
+
+Al abrir un módulo, el apadrinado verá únicamente las actividades de ese módulo que le fueron asignadas, separadas en:
+
+Actividades en proceso: tareas en estado Pendiente, En progreso, Enviado, En revisión o Corrección solicitada.
+Actividades realizadas: tareas en estado Aprobado, que el apadrinado ya llevó a cabo satisfactoriamente.
+Anuncios: información publicada por el coordinador en el módulo.
+Material de apoyo: archivos de apoyo publicados por el coordinador en el módulo.
+
+Tablero de pendientes del apadrinado
+
+El apadrinado contará con un tablero que mostrará las actividades que tiene pendientes por realizar: las tareas en estado Pendiente, En progreso y Corrección solicitada, ordenadas por fecha límite, destacando las próximas a vencer y aquellas en las que el coordinador solicitó correcciones.
+
+Desde el tablero, el apadrinado podrá abrir cada actividad para consultar sus instrucciones y realizar la entrega.
+
+Entrega de documentos y evidencias
+
+Los apadrinados podrán utilizar UNBOARD para realizar las entregas correspondientes a sus actividades de tipo Tarea.
+
+Podrán:
+
+Seleccionar documentos desde su dispositivo.
+Tomar o seleccionar fotografías.
+Adjuntar evidencias.
+Escribir cartas.
+Agregar comentarios.
+Enviar la actividad para revisión.
+
+Los documentos y archivos enviados quedarán asociados con el apadrinado y con la actividad correspondiente, permitiendo posteriormente localizarlos desde el expediente digital e incluirlos en los expedientes PDF y carpetas .zip.
+
+Revisión, seguimiento y sugerencias
+
+Una vez que un apadrinado envíe una actividad, el coordinador podrá revisar los contenidos entregados.
+
+El coordinador podrá:
+
+Consultar los documentos enviados.
+Visualizar fotografías.
+Leer cartas.
+Revisar evidencias.
+Consultar los comentarios del apadrinado.
+Aprobar la entrega.
+Solicitar correcciones escribiendo sugerencias de mejora.
+
+Cuando el coordinador solicite una corrección, deberá escribir las sugerencias de mejora que expliquen qué debe corregir el apadrinado. La actividad pasará al estado Corrección solicitada y el apadrinado recibirá una notificación.
+
+El apadrinado podrá consultar si su entrega fue aprobada o no y, en caso de no ser aprobada, leer las sugerencias del coordinador, corregir su entrega y enviarla nuevamente.
+
+Este ciclo de revisión podrá repetirse las veces que sea necesario hasta que la entrega sea completada de manera satisfactoria y el coordinador la apruebe. Todas las sugerencias y versiones de la entrega quedarán registradas en el historial de la actividad.
+
+De esta manera se establecerá un flujo de:
+
+Actividad → Entrega → Revisión → Sugerencias y corrección (se repite si es necesario) → Aprobación → Actualización del expediente.
+
+Generación de expedientes PDF y carpetas ZIP
+
+La generación de expedientes y carpetas comprimidas es una función exclusiva del coordinador y solo podrá aplicarse a los apadrinados y actividades de las comunidades bajo su responsabilidad. El apadrinado no tendrá acceso a estas funciones.
+
+Existirán cuatro tipos de exportación:
+
+1. Expediente PDF de un apadrinado por intervalo de tiempo
+
+El coordinador seleccionará un apadrinado y un intervalo de tiempo (fecha de inicio y fecha de fin). El sistema generará un documento PDF que contendrá:
+
+Datos personales del apadrinado.
+Comunidad y coordinador responsable.
+Intervalo de tiempo del expediente.
+Las actividades asignadas al apadrinado dentro del intervalo, con su tipo, nombre, fecha límite, estado, fecha de entrega y fecha de aprobación.
+Las sugerencias y observaciones registradas en cada actividad.
+Las cartas escritas por el apadrinado.
+Las fotografías entregadas (en miniatura) y la lista de documentos entregados.
+Fecha de generación y nombre del coordinador que lo generó.
+
+2. Expediente PDF de una actividad de una comunidad
+
+Desde el detalle de una actividad de tipo Tarea, el coordinador podrá generar un PDF que contendrá:
+
+Datos de la actividad: nombre, descripción, instrucciones, comunidad y fecha límite.
+Por cada apadrinado cuya entrega haya sido completada satisfactoriamente y aprobada por el coordinador: nombre, fecha de entrega, fecha de aprobación, cartas, fotografías (en miniatura) y lista de documentos entregados.
+Un resumen con la cantidad de apadrinados asignados y aprobados.
+
+Solo se incluirán las entregas aprobadas. La opción estará disponible cuando la actividad tenga al menos una entrega aprobada.
+
+3. Carpeta ZIP de un apadrinado por intervalo de tiempo
+
+El coordinador seleccionará un apadrinado y un intervalo de tiempo. El sistema generará un archivo .zip con los archivos que el apadrinado ha trabajado (documentos, fotografías, cartas y evidencias) en las actividades dentro de ese intervalo cuya entrega haya sido completada satisfactoriamente y aprobada por el coordinador, organizado en una carpeta por actividad:
+
+Apadrinado_Nombre/
+   Actividad_1/
+   Actividad_2/
+   ...
+
+Solo se incluirán las entregas aprobadas y, de cada una, la versión que el coordinador aprobó. Las entregas pendientes, en revisión o con corrección solicitada no se incluirán.
+
+4. Carpeta ZIP de una actividad de una comunidad
+
+Desde el detalle de una actividad de tipo Tarea, el coordinador podrá generar un archivo .zip con los archivos subidos por los apadrinados cuya entrega haya sido completada satisfactoriamente y aprobada por el coordinador, organizado en una carpeta por apadrinado:
+
+Actividad_Nombre/
+   Apadrinado_1/
+   Apadrinado_2/
+   ...
+
+Solo se incluirán las entregas aprobadas. La opción estará disponible cuando la actividad tenga al menos una entrega aprobada.
+
+Funcionamiento de la exportación
+
+Los archivos PDF y ZIP serán generados por el backend, que validará antes el rol de coordinador y la pertenencia del apadrinado o de la actividad a sus comunidades.
+El archivo generado se guardará temporalmente en el repositorio remoto de documentos y el coordinador podrá descargarlo en su dispositivo o compartirlo desde la aplicación.
+El filtro de intervalo de tiempo se aplicará sobre la fecha de asignación de las actividades.
+Cada generación quedará registrada en el historial (quién la generó, qué tipo, de qué apadrinado o actividad y con qué intervalo).
+
+Gestión documental
+
+UNBOARD permitirá almacenar y organizar los documentos relacionados con los apadrinados.
+
+Los documentos podrán clasificarse utilizando información como:
+
+Tipo de documento.
+Fecha.
+Apadrinado.
+Actividad relacionada.
+Origen (material del coordinador o entrega del apadrinado).
+Estado.
+
+Los usuarios podrán consultar los archivos a los que tengan autorización de acceso desde sus respectivos dispositivos.
+
+La base de datos almacenará la información estructurada y los metadatos de los documentos, mientras que los archivos podrán mantenerse en un repositorio remoto de documentos. De esta manera se evita depender del almacenamiento local de un único dispositivo.
+
+Fotografías, cartas y evidencias
+
+Además de los documentos institucionales, el sistema permitirá gestionar otros contenidos relacionados con el seguimiento de los apadrinados.
+
+Las fotografías podrán estar relacionadas con actividades o evidencias específicas.
+
+Las cartas podrán ser elaboradas y almacenadas dentro del expediente correspondiente.
+
+Las evidencias podrán asociarse a las actividades para facilitar su posterior revisión por parte del coordinador.
+
+Todos estos elementos deberán mantenerse relacionados con el apadrinado y, cuando corresponda, con la actividad que los originó.
+
+Notificaciones
+
+UNBOARD contará con un sistema de notificaciones para informar a los usuarios sobre eventos importantes.
+
+Entre las notificaciones consideradas se encuentran:
+
+Nueva actividad asignada.
+Nuevo anuncio publicado.
+Nuevo material de apoyo publicado.
+Actividad modificada por el coordinador.
+Próxima fecha límite.
+Documento enviado.
+Documento en revisión.
+Corrección solicitada (con sugerencias del coordinador).
+Actividad aprobada.
+Solicitud de incorporación aceptada o rechazada.
+Nuevos eventos relacionados con la comunidad.
+
+Esto permitirá mantener informados a los usuarios sin depender exclusivamente de medios externos de comunicación.
+
+Historial y trazabilidad
+
+El sistema mantendrá un historial de cambios asociado a la información relevante.
+
+Se podrán registrar acciones como:
+
+Creación, edición y eliminación de actividades.
+Carga de documentos.
+Actualización de documentos.
+Revisión de entregas.
+Sugerencias y solicitudes de corrección.
+Aprobación de actividades.
+Generación de expedientes PDF y carpetas ZIP.
+Modificaciones relevantes del expediente.
+
+El historial permitirá conocer qué usuario realizó una acción y cuándo fue realizada, contribuyendo a mantener la trazabilidad de la información.
+
+Arquitectura del sistema
+
+La solución estará compuesta por tres elementos principales:
+
+Aplicación móvil UNBOARD
+
+Será utilizada tanto por coordinadores como por apadrinados.
+
+La aplicación proporcionará una interfaz adaptada al rol del usuario y permitirá realizar las operaciones autorizadas. El coordinador verá su tablero de actividades, sus comunidades, las revisiones y las opciones de exportación; el apadrinado verá su comunidad con sus módulos y su tablero de pendientes.
+
+Backend
+
+El backend será responsable de:
+
+Autenticación.
+Autorización.
+Control de acceso basado en roles.
+Gestión de usuarios.
+Gestión de comunidades.
+Gestión de módulos.
+Gestión de solicitudes.
+Gestión de apadrinados.
+Gestión de expedientes.
+Gestión de actividades (CRUD, tipos y asignaciones).
+Gestión de revisiones y sugerencias.
+Generación de expedientes PDF.
+Generación de carpetas ZIP.
+Gestión documental.
+Gestión de archivos.
+Gestión de notificaciones.
+Registro de historial y trazabilidad.
+
+El backend validará los permisos antes de ejecutar las operaciones protegidas.
+
+Base de datos y almacenamiento remoto
+
+La base de datos almacenará la información estructurada del sistema, incluyendo usuarios, roles, comunidades, módulos, apadrinados, expedientes, actividades, asignaciones, entregas, documentos, fotografías, cartas, sugerencias, observaciones, notificaciones, exportaciones e historial.
+
+Los archivos, incluidos los PDF y ZIP generados, podrán almacenarse en un repositorio remoto especializado, manteniendo en la base de datos sus referencias y metadatos.
+
+En el entorno de producción, estos servicios deberán encontrarse disponibles remotamente mediante Internet para permitir la comunicación entre los diferentes dispositivos.
+
+Entidades principales
+
+Entre las principales entidades consideradas para el sistema se encuentran:
+
+Usuarios.
+Roles.
+Coordinadores.
+Comunidades.
+Módulos (pertenecen a una comunidad; contienen actividades).
+Apadrinados.
+Expedientes.
+Actividades (con su tipo: Tarea, Anuncio o Material de apoyo).
+Asignaciones (relación entre una actividad y cada apadrinado, con su estado).
+Entregas (y sus versiones).
+Sugerencias de mejora.
+Documentos.
+Fotografías.
+Cartas.
+Observaciones.
+Exportaciones (PDF y ZIP generados).
+Notificaciones.
+Historial de actividades y cambios.
+
+Estas entidades permitirán relacionar la información y mantener organizada la documentación correspondiente a cada apadrinado.
+
+Flujo general del sistema
+
+El funcionamiento general podrá representarse de la siguiente manera:
+
+Registro del usuario → Autenticación → Identificación del rol → Acceso autorizado → Comunidad → Actividades → Gestión de documentos y evidencias → Revisión y sugerencias → Aprobación → Actualización del expediente → Exportación PDF/ZIP → Historial y notificaciones.
+
+Para el apadrinado:
+
+Registro → Código de comunidad → Solicitud de incorporación → Aprobación → Comunidad y módulos → Tablero de pendientes → Entrega de documentos/evidencias → Consulta de aprobación o sugerencias → Corrección y reenvío (si es necesario) → Actividad realizada.
+
+Para el coordinador:
+
+Autenticación → Comunidades → Solicitudes → Apadrinados → Módulos (Módulo 1 automático o módulos propios) → Tablero de actividades → Creación de actividades en un módulo (Tarea, Anuncio o Material de apoyo) → Asignación a la comunidad o a apadrinados seleccionados → Recepción de entregas → Revisión → Sugerencias/aprobación → Expedientes → Generación de PDF y ZIP → Historial.
+
+Alcance del proyecto
+
+El proyecto contempla el desarrollo de UNBOARD, un prototipo funcional de una aplicación móvil de gestión documental y seguimiento, adaptada a las necesidades de la Fundación UNBOUND, sede Huehuetenango.
+
+El sistema contemplará:
+
+Autenticación de usuarios.
+Control de acceso basado en roles.
+Roles de Coordinador y Apadrinado.
+Gestión de comunidades.
+Códigos de acceso.
+Solicitudes de incorporación.
+Perfiles de usuario.
+Expedientes digitales.
+Gestión de actividades (crear, consultar, editar y eliminar).
+Tipos de actividad: Tarea, Anuncio y Material de apoyo.
+Asignación de actividades a toda la comunidad o a apadrinados seleccionados.
+Tablero de actividades del coordinador.
+Módulos creados por el coordinador dentro de cada comunidad, con un Módulo 1 universal creado automáticamente.
+Vista de la comunidad y sus módulos para el apadrinado.
+Tablero de actividades pendientes del apadrinado.
+Material de apoyo.
+Carga de documentos.
+Carga de fotografías.
+Gestión de cartas y evidencias.
+Observaciones.
+Revisión de entregas.
+Sugerencias de mejora y solicitud de correcciones.
+Aprobación de actividades.
+Generación de expedientes PDF por apadrinado (con filtro de intervalo de tiempo) y por actividad.
+Generación de carpetas ZIP con entregas aprobadas, por apadrinado (con filtro de intervalo de tiempo) y por actividad.
+Notificaciones.
+Historial y trazabilidad.
+Almacenamiento remoto.
+Comunicación entre dispositivos mediante Internet.
+Despliegue remoto del backend, base de datos y almacenamiento de archivos.
+
+UNBOARD se plantea como una herramienta especializada para apoyar la gestión y seguimiento entre coordinadores y apadrinados. No pretende sustituir los sistemas institucionales existentes de la Fundación UNBOUND, sino proporcionar una plataforma móvil que permita centralizar, organizar, consultar y exportar la información relacionada con los apadrinados y sus actividades.
+
+La información organizada mediante el sistema podrá servir además como base para futuros procesos de integración con otros sistemas institucionales.

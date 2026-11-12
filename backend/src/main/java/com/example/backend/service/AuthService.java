@@ -38,11 +38,15 @@ public class AuthService {
         if (request.getCorreo() == null || request.getCorreo().isBlank()) {
             throw new RuntimeException("El correo electrónico es obligatorio.");
         }
+        request.setCorreo(request.getCorreo().trim().toLowerCase());
         if (usuarioRepository.existsByCorreo(request.getCorreo())) {
             throw new RuntimeException("Ya existe un usuario con el correo: " + request.getCorreo());
         }
         if (request.getPassword() == null || request.getPassword().isBlank()) {
             throw new RuntimeException("La contraseña es obligatoria.");
+        }
+        if (request.getNombre() == null || request.getNombre().isBlank()) {
+            throw new RuntimeException("El nombre es obligatorio.");
         }
 
         // FASE B: el registro público solo permite crear perfiles de apadrinado
@@ -54,15 +58,18 @@ public class AuthService {
             }
         }
 
-        com.example.backend.entity.Rol rol = null;
-        if (request.getRolId() != null) {
-            rol = rolRepository.findById(request.getRolId()).orElse(null);
-        }
+        // El registro público crea siempre un perfil de apadrinado
+        com.example.backend.entity.Rol rol = rolRepository.findByNombre("Apadrinado")
+                .orElseGet(() -> rolRepository.save(new com.example.backend.entity.Rol(null, "Apadrinado")));
 
         Usuario usuario = Usuario.builder()
-                .nombre(request.getNombre())
+                .nombre(request.getNombre().trim())
+                .apellido(limpiar(request.getApellido()))
                 .correo(request.getCorreo())
                 .password(passwordEncoder.encode(request.getPassword()))
+                .telefono(limpiar(request.getTelefono()))
+                .direccion(limpiar(request.getDireccion()))
+                .fechaNacimiento(request.getFechaNacimiento())
                 .rol(rol)
                 .build();
 
@@ -90,7 +97,8 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public LoginResponseDTO autenticar(LoginRequestDTO request) {
-        Usuario usuario = usuarioRepository.findByCorreo(request.getCorreo())
+        String correo = request.getCorreo() != null ? request.getCorreo().trim().toLowerCase() : "";
+        Usuario usuario = usuarioRepository.findByCorreo(correo)
                 .orElseThrow(() -> new RuntimeException("Credenciales inválidas: correo no registrado."));
 
         if (!passwordEncoder.matches(request.getPassword(), usuario.getPassword())) {
@@ -261,5 +269,9 @@ public class AuthService {
         usuario.setPassword(passwordEncoder.encode(nuevaPassword));
         usuarioRepository.save(usuario);
         log.info("Contraseña cambiada correctamente para el usuario: {}", usuario.getCorreo());
+    }
+
+    private static String limpiar(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 }

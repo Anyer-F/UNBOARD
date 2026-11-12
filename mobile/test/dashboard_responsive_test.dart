@@ -6,6 +6,8 @@ import 'package:unbound_mobile/features/dashboard/apadrinado_home_screen.dart';
 import 'package:unbound_mobile/features/dashboard/coordinador_dashboard_screen.dart';
 import 'package:unbound_mobile/shared/models/actividad.dart';
 import 'package:unbound_mobile/shared/models/apadrinado.dart';
+import 'package:unbound_mobile/shared/models/asignacion.dart';
+import 'package:unbound_mobile/shared/models/modulo.dart';
 import 'package:unbound_mobile/shared/models/notificacion.dart';
 
 /// Anchos de prueba: teléfono pequeño, teléfono, tablet, escritorio/web.
@@ -15,11 +17,13 @@ final _actividades = [
   for (var i = 0; i < 4; i++)
     Actividad(
       id: i,
+      tipo: [TipoActividad.tarea, TipoActividad.tarea, TipoActividad.anuncio, TipoActividad.material][i],
       titulo: 'Actividad con un título bastante largo para probar el ajuste $i',
-      fechaCreacion: '2026-10-01',
-      fechaLimite: '2026-10-${20 + i}',
-      estado: ['PENDIENTE', 'ENTREGADA', 'APROBADA', 'CORRECCION_SOLICITADA'][i],
-      apadrinadoNombre: 'María Fernanda López García',
+      fechaCreacion: '2026-10-01T10:00:00',
+      fechaLimite: i < 2 ? '2026-10-${20 + i}' : null,
+      comunidadNombre: 'Comunidad San Juan Ixcoy, Huehuetenango',
+      moduloNombre: 'Módulo 1: Bienvenida',
+      resumen: ResumenAvance(asignados: 5, pendientes: 1, enviados: i, aprobados: 2, correcciones: 1),
     ),
 ];
 
@@ -33,13 +37,36 @@ final _apadrinados = [
     ),
 ];
 
+final _tablero = TableroApadrinado(
+  pendientes: [
+    for (var i = 0; i < 4; i++)
+      Asignacion(
+        id: i,
+        actividadId: i,
+        estado: [
+          EstadoAsignacion.pendiente,
+          EstadoAsignacion.enProgreso,
+          EstadoAsignacion.correccion,
+          EstadoAsignacion.pendiente,
+        ][i],
+        proximaAVencer: i == 1,
+        ultimaSugerencia: i == 2 ? 'La fotografía no se ve bien, envía una más clara por favor.' : null,
+        actividad: _actividades[0],
+      ),
+  ],
+  correcciones: 1,
+  proximasAVencer: 1,
+  realizadas: 3,
+  anunciosNuevos: 2,
+);
+
 final _notificaciones = [
   for (var i = 0; i < 3; i++)
     Notificacion(
       id: i,
       titulo: 'Nueva actividad asignada $i',
       mensaje: 'Tienes una nueva actividad pendiente de entregar antes de la fecha límite.',
-      tipo: 'ACTIVIDAD',
+      tipo: 'NUEVA_ACTIVIDAD',
       fechaCreacion: '2026-10-0${i + 1}T10:00:00',
     ),
 ];
@@ -65,24 +92,37 @@ Future<void> _recorrer(WidgetTester tester) async {
   }
 }
 
+CoordinadorHomeView _coordinador() => CoordinadorHomeView(
+      nombre: 'Carlos Alberto Méndez Rodríguez',
+      comunidades: 3,
+      solicitudesPendientes: 2,
+      apadrinados: _apadrinados,
+      actividades: _actividades,
+      onRefresh: () async {},
+      onNuevaActividad: () {},
+      onAbrirComunidades: () {},
+      onAbrirActividades: () {},
+      onSolicitudes: () {},
+      onExpedientesActividad: () {},
+      onHistorial: () {},
+    );
+
+ApadrinadoHomeView _apadrinado() => ApadrinadoHomeView(
+      nombre: 'María Fernanda López García',
+      comunidad: 'Comunidad San Juan Ixcoy, Huehuetenango',
+      tablero: _tablero,
+      notificaciones: _notificaciones,
+      onRefresh: () async {},
+      onAbrirAsignacion: (_) {},
+      onVerComunidad: () {},
+    );
+
 void main() {
   setUpAll(() => initializeDateFormatting('es'));
 
   for (final ancho in _anchos) {
     testWidgets('Inicio del coordinador sin desbordes a ${ancho.toInt()}px', (tester) async {
-      await _pump(
-        tester,
-        ancho,
-        CoordinadorHomeView(
-          nombre: 'Carlos Alberto Méndez Rodríguez',
-          apadrinados: _apadrinados,
-          actividades: _actividades,
-          onRefresh: () async {},
-          onNuevaActividad: () {},
-          onAbrirComunidades: () {},
-          onExpedientesActividad: () {},
-        ),
-      );
+      await _pump(tester, ancho, _coordinador());
       expect(tester.takeException(), isNull);
       expect(find.text('Expedientes por actividad'), findsOneWidget);
       await _recorrer(tester);
@@ -90,53 +130,26 @@ void main() {
     });
 
     testWidgets('Inicio del apadrinado sin desbordes a ${ancho.toInt()}px', (tester) async {
-      await _pump(
-        tester,
-        ancho,
-        ApadrinadoHomeView(
-          nombre: 'María Fernanda López García',
-          comunidad: 'Comunidad San Juan Ixcoy, Huehuetenango',
-          actividades: _actividades,
-          notificaciones: _notificaciones,
-          onRefresh: () async {},
-        ),
-      );
+      await _pump(tester, ancho, _apadrinado());
       expect(tester.takeException(), isNull);
+      expect(find.text('Mis pendientes'), findsOneWidget);
       await _recorrer(tester);
       expect(tester.takeException(), isNull);
     });
   }
 
   testWidgets('En pantallas anchas el inicio usa dos columnas', (tester) async {
-    await _pump(
-      tester,
-      1280,
-      ApadrinadoHomeView(
-        nombre: 'Ana',
-        comunidad: 'Comunidad',
-        actividades: _actividades,
-        notificaciones: _notificaciones,
-        onRefresh: () async {},
-      ),
-    );
+    await _pump(tester, 1280, _apadrinado());
+    final pendientes = tester.getTopLeft(find.text('Mis pendientes'));
     final resumen = tester.getTopLeft(find.text('Mi resumen'));
-    final expediente = tester.getTopLeft(find.text('Mi expediente digital'));
-    expect(expediente.dx, greaterThan(resumen.dx));
+    expect(resumen.dx, greaterThan(pendientes.dx));
   });
 
   testWidgets('En teléfono el inicio usa una columna', (tester) async {
-    await _pump(
-      tester,
-      360,
-      CoordinadorHomeView(
-        nombre: 'Carlos',
-        apadrinados: _apadrinados,
-        actividades: _actividades,
-        onRefresh: () async {},
-      ),
-    );
+    await _pump(tester, 360, _coordinador());
     final resumen = tester.getTopLeft(find.text('Mi resumen'));
-    final apadrinados = tester.getTopLeft(find.text('Apadrinados').last);
-    expect(apadrinados.dx, resumen.dx);
+    await tester.scrollUntilVisible(find.text('Entregas por revisar'), 300);
+    final entregas = tester.getTopLeft(find.text('Entregas por revisar'));
+    expect(entregas.dx, resumen.dx);
   });
 }

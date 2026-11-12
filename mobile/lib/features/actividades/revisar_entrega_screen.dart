@@ -1,542 +1,634 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import '../../shared/models/actividad.dart';
+
+import '../../core/constants/app_radius.dart';
+import '../../core/constants/app_spacing.dart';
+import '../../core/network/api_client.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_utils.dart';
+import '../../core/utils/responsive.dart';
+import '../../services/asignacion_service.dart';
+import '../../services/documento_service.dart';
+import '../../shared/models/asignacion.dart';
+import '../../shared/models/carta.dart';
 import '../../shared/models/documento.dart';
 import '../../shared/models/historial_actividad.dart';
-import '../../services/actividad_service.dart';
-import '../../services/documento_service.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../shared/widgets/actividad_widgets.dart';
+import '../../shared/widgets/app_card.dart';
+import '../../shared/widgets/states.dart';
+import '../../shared/widgets/status_chip.dart';
 import '../documentos/documento_viewer_modal.dart';
-import 'crear_actividad_screen.dart';
 
+/// Revisión de la entrega de un apadrinado (coordinador): documentos,
+/// fotografías, cartas, evidencias y comentarios de la última versión
+/// enviada; aprobar o solicitar correcciones con sugerencias de mejora.
 class RevisarEntregaScreen extends StatefulWidget {
-  final Actividad actividad;
+  final int asignacionId;
 
-  const RevisarEntregaScreen({super.key, required this.actividad});
+  const RevisarEntregaScreen({super.key, required this.asignacionId});
 
   @override
   State<RevisarEntregaScreen> createState() => _RevisarEntregaScreenState();
 }
 
 class _RevisarEntregaScreenState extends State<RevisarEntregaScreen> {
-  final _actividadService = ActividadService();
-  final _documentoService = DocumentoService();
-  final _observacionesController = TextEditingController();
+  final _service = AsignacionService();
 
-  List<Documento> _documentos = [];
-  List<HistorialActividad> _historial = [];
-  bool _isLoadingDocs = true;
-  bool _isLoadingHistorial = true;
-  bool _isSubmitting = false;
-  late Actividad _actividad;
+  AsignacionDetalle? _detalle;
+  bool _cargando = true;
+  bool _procesando = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _actividad = widget.actividad;
-    _observacionesController.text = _actividad.observaciones ?? '';
-    _cargarDocumentos();
-    _cargarHistorial();
+    _cargar(iniciar: true);
   }
 
-  @override
-  void dispose() {
-    _observacionesController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _cargarDocumentos() async {
+  Future<void> _cargar({bool iniciar = false}) async {
     try {
-      final docs = await _documentoService.listarPorActividad(_actividad.id);
-      setState(() {
-        _documentos = docs;
-        _isLoadingDocs = false;
-      });
-    } catch (_) {
-      setState(() => _isLoadingDocs = false);
-    }
-  }
-
-  Future<void> _cargarHistorial() async {
-    try {
-      final h = await _actividadService.obtenerHistorialPorActividad(_actividad.id);
-      setState(() {
-        _historial = h;
-        _isLoadingHistorial = false;
-      });
-    } catch (_) {
-      setState(() => _isLoadingHistorial = false);
-    }
-  }
-
-  Future<void> _cambiarEstado(String nuevoEstado) async {
-    final obs = _observacionesController.text.trim();
-
-    if (nuevoEstado == 'CORRECCION_SOLICITADA' && obs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Debes indicar las observaciones para solicitar una corrección.'),
-          backgroundColor: AppColors.coralRed,
-        ),
-      );
-      return;
-    }
-
-    setState(() => _isSubmitting = true);
-
-    try {
-      final actualizada = await _actividadService.cambiarEstado(
-        _actividad.id,
-        nuevoEstado,
-        observaciones: obs,
-      );
-
-      setState(() {
-        _actividad = actualizada;
-        _isSubmitting = false;
-      });
-
+      var d = await _service.detalle(widget.asignacionId);
+      // Al abrir una entrega recién enviada comienza la revisión
+      if (iniciar && d.asignacion.estado == EstadoAsignacion.enviado) {
+        await _service.iniciarRevision(widget.asignacionId);
+        d = await _service.detalle(widget.asignacionId);
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            nuevoEstado == 'APROBADA'
-                ? '¡Actividad Aprobada con éxito!'
-                : 'Se ha solicitado corrección al apadrinado.',
-          ),
-          backgroundColor: nuevoEstado == 'APROBADA' ? AppColors.sageGreen : AppColors.coralRed,
-        ),
-      );
-      Navigator.pop(context, true);
+      setState(() {
+        _detalle = d;
+        _cargando = false;
+        _error = null;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
-          backgroundColor: AppColors.coralRed,
-        ),
-      );
+      setState(() {
+        _error = mensajeDeError(e);
+        _cargando = false;
+      });
     }
   }
 
-  Future<void> _editarActividad() async {
-    final actualizada = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CrearActividadScreen(actividadParaEditar: _actividad),
-      ),
-    );
-
-    if (actualizada == true && mounted) {
-      try {
-        final act = await _actividadService.obtenerPorId(_actividad.id);
-        setState(() {
-          _actividad = act;
-          _observacionesController.text = act.observaciones ?? '';
-        });
-        _cargarHistorial();
-      } catch (_) {}
-    }
+  void _mostrar(String mensaje, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(mensaje),
+      backgroundColor: error ? AppColors.coralRed : AppColors.sageGreen,
+    ));
   }
 
-  Future<void> _eliminarActividad() async {
-    final confirmar = await showDialog<bool>(
+  /// Diálogo de texto; con [obligatorio] no deja confirmar vacío.
+  Future<String?> _pedirTexto({
+    required String titulo,
+    required String etiqueta,
+    required String confirmar,
+    String? ayuda,
+    bool obligatorio = false,
+    Color? color,
+  }) {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: AppColors.coralRed),
-            SizedBox(width: 8),
-            Text('Eliminar Actividad'),
-          ],
-        ),
-        content: Text(
-          '¿Estás seguro de que deseas eliminar permanentemente la actividad "${_actividad.titulo}"?\n\nEsta acción no se puede deshacer y eliminará las evidencias entregadas.',
+        title: Text(titulo),
+        content: SizedBox(
+          width: 480,
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (ayuda != null) ...[
+                  Text(ayuda, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+                TextFormField(
+                  controller: controller,
+                  autofocus: true,
+                  maxLines: 5,
+                  decoration: InputDecoration(labelText: etiqueta, alignLabelWithHint: true),
+                  validator: (v) =>
+                      obligatorio && (v == null || v.trim().isEmpty) ? 'Este campo es obligatorio' : null,
+                ),
+              ],
+            ),
+          ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.coralRed),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Eliminar Permanentemente'),
+            style: color != null ? ElevatedButton.styleFrom(backgroundColor: color, foregroundColor: Colors.white) : null,
+            onPressed: () {
+              if (formKey.currentState!.validate()) Navigator.pop(ctx, controller.text.trim());
+            },
+            child: Text(confirmar),
           ),
         ],
       ),
     );
+  }
 
-    if (confirmar == true && mounted) {
-      setState(() => _isSubmitting = true);
-      try {
-        await _actividadService.eliminar(_actividad.id);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Actividad eliminada correctamente.'),
-            backgroundColor: AppColors.sageGreen,
-          ),
-        );
-        Navigator.pop(context, true);
-      } catch (e) {
-        if (!mounted) return;
-        setState(() => _isSubmitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al eliminar actividad: $e'),
-            backgroundColor: AppColors.coralRed,
-          ),
-        );
-      }
+  Future<void> _aprobar() async {
+    final texto = await _pedirTexto(
+      titulo: 'Aprobar entrega',
+      etiqueta: 'Observación (opcional)',
+      ayuda: 'La actividad quedará completada satisfactoriamente. La observación se guarda en el expediente.',
+      confirmar: 'Aprobar',
+      color: AppColors.sageGreen,
+    );
+    if (texto == null) return;
+    await _accion(() => _service.aprobar(widget.asignacionId, observacion: texto), 'Entrega aprobada');
+  }
+
+  Future<void> _corregir() async {
+    final texto = await _pedirTexto(
+      titulo: 'Solicitar corrección',
+      etiqueta: 'Sugerencias de mejora',
+      ayuda: 'Explique qué debe corregir el apadrinado. Recibirá una notificación con estas sugerencias.',
+      confirmar: 'Enviar sugerencias',
+      obligatorio: true,
+      color: AppColors.coralRed,
+    );
+    if (texto == null) return;
+    await _accion(() => _service.solicitarCorreccion(widget.asignacionId, texto), 'Corrección solicitada');
+  }
+
+  Future<void> _accion(Future<void> Function() accion, String exito) async {
+    setState(() => _procesando = true);
+    try {
+      await accion();
+      _mostrar(exito);
+      await _cargar();
+    } catch (e) {
+      _mostrar(mensajeDeError(e), error: true);
+    } finally {
+      if (mounted) setState(() => _procesando = false);
     }
   }
+
+  Future<void> _verHistorial() async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _HistorialSheet(cargar: () => _service.historial(widget.asignacionId)),
+    );
+  }
+
+  // ==================== INTERFAZ ====================
 
   @override
   Widget build(BuildContext context) {
-    final estadoColor = AppTheme.getEstadoColor(_actividad.estado);
-    final estadoTexto = AppTheme.getEstadoTexto(_actividad.estado);
-
+    final d = _detalle;
+    final puedeRevisar = d != null && d.asignacion.estado == EstadoAsignacion.enRevision;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Revisión de Entrega'),
+        title: const Text('Revisar entrega'),
         actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            tooltip: 'Opciones de actividad',
-            onSelected: (val) {
-              if (val == 'editar') {
-                _editarActividad();
-              } else if (val == 'eliminar') {
-                _eliminarActividad();
-              }
-            },
-            itemBuilder: (ctx) => [
-              const PopupMenuItem(
-                value: 'editar',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_outlined, color: AppColors.darkNavy, size: 20),
-                    SizedBox(width: 10),
-                    Text('Editar Actividad'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'eliminar',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline, color: AppColors.coralRed, size: 20),
-                    SizedBox(width: 10),
-                    Text('Eliminar Actividad', style: TextStyle(color: AppColors.coralRed)),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          IconButton(tooltip: 'Historial', icon: const Icon(Icons.history), onPressed: _verHistorial),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Cabecera con estado
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      bottomNavigationBar: puedeRevisar ? _barraAcciones() : null,
+      body: _cargando
+          ? const LoadingState(message: 'Cargando entrega...')
+          : _error != null
+              ? ErrorState(title: 'No se pudo cargar la entrega', message: _error, onRetry: _cargar)
+              : _cuerpo(d!),
+    );
+  }
+
+  Widget _barraAcciones() {
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: AppColors.borderLight)),
+        ),
+        // heightFactor: 1 — sin él, Center ocupa todo el alto y tapa el cuerpo
+        child: Center(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    _actividad.titulo,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.darkNavy,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.coralRed,
+                      side: const BorderSide(color: AppColors.coralRed),
+                      minimumSize: const Size(0, 48),
                     ),
+                    onPressed: _procesando ? null : _corregir,
+                    icon: const Icon(Icons.edit_note),
+                    label: const Text('Solicitar corrección'),
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: estadoColor.withAlpha(30),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: estadoColor),
-                  ),
-                  child: Text(
-                    estadoTexto,
-                    style: TextStyle(
-                      color: estadoColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.sageGreen,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(0, 48),
                     ),
+                    onPressed: _procesando ? null : _aprobar,
+                    icon: _procesando
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.check_circle_outline),
+                    label: const Text('Aprobar'),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            if (_actividad.apadrinadoNombre != null)
-              Text(
-                'Beneficiario: ${_actividad.apadrinadoNombre}',
-                style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
-              ),
-            const Divider(height: 24),
-
-            // Instrucciones originales
-            const Text(
-              'Instrucciones asignadas:',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.darkNavy),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.borderLight),
-              ),
-              child: Text(
-                (_actividad.descripcion != null && _actividad.descripcion!.isNotEmpty)
-                    ? _actividad.descripcion!
-                    : 'Sin descripción adicional.',
-                style: const TextStyle(fontSize: 13, height: 1.4),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Documentos y Evidencias subidas
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Evidencias y Archivos Recibidos:',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.darkNavy),
-                ),
-                Text(
-                  '${_documentos.length} archivo(s)',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-
-            if (_isLoadingDocs)
-              const Center(child: CircularProgressIndicator())
-            else if (_documentos.isEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Center(
-                  child: Text(
-                    'Aún no se han adjuntado archivos para esta actividad.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
-                  ),
-                ),
-              )
-            else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _documentos.length,
-                itemBuilder: (context, index) {
-                  final doc = _documentos[index];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: doc.isImage
-                            ? AppColors.coralRed.withAlpha(30)
-                            : AppColors.tealCyan.withAlpha(30),
-                        child: Icon(
-                          doc.isImage ? Icons.image : Icons.picture_as_pdf,
-                          color: doc.isImage ? AppColors.coralRed : AppColors.tealCyan,
-                        ),
-                      ),
-                      title: Text(doc.nombreOriginal, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                      subtitle: Text(
-                        'Tipo: ${doc.tipoDocumento} • ${(doc.tamanioBytes != null ? (doc.tamanioBytes! / 1024).toStringAsFixed(1) : 0)} KB',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      trailing: const Icon(Icons.visibility_outlined, color: AppColors.darkNavy),
-                      onTap: () {
-                        DocumentoViewerModal.mostrar(context, doc);
-                      },
-                    ),
-                  );
-                },
-              ),
-
-            const SizedBox(height: 24),
-            // Observaciones del Coordinador
-            const Text(
-              'Observaciones y Retroalimentación:',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.darkNavy),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _observacionesController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: 'Escribe comentarios u observaciones para el apadrinado...',
-                alignLabelWithHint: true,
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Botones de acción
-            if (_isSubmitting)
-              const Center(child: CircularProgressIndicator())
-            else
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.coralRed,
-                        side: const BorderSide(color: AppColors.coralRed),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      onPressed: () => _cambiarEstado('CORRECCION_SOLICITADA'),
-                      icon: const Icon(Icons.close),
-                      label: const Text('Pedir Corrección'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.sageGreen,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      onPressed: () => _cambiarEstado('APROBADA'),
-                      icon: const Icon(Icons.check),
-                      label: const Text('Aprobar'),
-                    ),
-                  ),
-                ],
-              ),
-
-            const SizedBox(height: 28),
-            _buildHistorialWidget(),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildHistorialWidget() {
-    return Column(
+  Widget _cuerpo(AsignacionDetalle d) {
+    final enviada = d.ultimaEnviada;
+    final anteriores = d.entregas.where((e) => !e.esBorrador && e.id != enviada?.id).toList();
+    return DashboardLayout(
+      onRefresh: _cargar,
+      principal: [
+        _encabezado(d),
+        _estado(d),
+        if (enviada != null) _entrega(enviada, actual: true),
+      ],
+      secundario: [
+        _requisitos(d),
+        if (anteriores.isNotEmpty) _anteriores(anteriores),
+      ],
+    );
+  }
+
+  Widget _tarjeta(Widget child, {Color? color}) => AppCard(
+        margin: const EdgeInsets.only(bottom: AppSpacing.md),
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        backgroundColor: color,
+        child: child,
+      );
+
+  Widget _titulo(String texto) => Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+        child: Text(texto, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.charcoal)),
+      );
+
+  Widget _encabezado(AsignacionDetalle d) {
+    final a = d.actividad;
+    final s = d.asignacion;
+    return _tarjeta(Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const Icon(Icons.history, color: AppColors.darkNavy, size: 20),
-            const SizedBox(width: 8),
-            const Text(
-              'Bitácora y Trazabilidad de la Actividad:',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.darkNavy),
+            Expanded(
+              child: Text(s.apadrinadoNombre ?? 'Apadrinado',
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.charcoal)),
             ),
-            const Spacer(),
-            if (_isLoadingHistorial)
-              const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2))
-            else
-              Text('${_historial.length} evento(s)', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            StatusChip(estado: s.estado),
           ],
         ),
-        const SizedBox(height: 10),
-        if (_historial.isEmpty && !_isLoadingHistorial)
+        const SizedBox(height: AppSpacing.sm),
+        DatoLinea(icon: Icons.assignment_outlined, texto: a.titulo),
+        const SizedBox(height: AppSpacing.xs),
+        DatoLinea(icon: Icons.folder_outlined, texto: [a.comunidadNombre, a.moduloNombre].whereType<String>().join(' · ')),
+        if (a.fechaLimite != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          DatoLinea(icon: Icons.event_outlined, texto: 'Fecha límite: ${AppDateUtils.formatDate(a.fechaLimite)}'),
+        ],
+        if (s.fechaEnvio != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          DatoLinea(icon: Icons.upload_outlined, texto: 'Enviado: ${AppDateUtils.formatDateTime(s.fechaEnvio)}'),
+        ],
+        if (s.fechaAprobacion != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          DatoLinea(icon: Icons.verified_outlined, texto: 'Aprobado: ${AppDateUtils.formatDateTime(s.fechaAprobacion)}'),
+        ],
+      ],
+    ));
+  }
+
+  Widget _estado(AsignacionDetalle d) {
+    final s = d.asignacion;
+    late final IconData icono;
+    late final Color color;
+    late final String texto;
+    switch (s.estado) {
+      case EstadoAsignacion.enRevision:
+        icono = Icons.rate_review_outlined;
+        color = AppColors.darkNavy;
+        texto = 'Revise la entrega y apruébela o solicite correcciones.';
+      case EstadoAsignacion.aprobado:
+        icono = Icons.check_circle_outline;
+        color = AppColors.sageGreen;
+        texto = 'Entrega aprobada: la actividad se completó satisfactoriamente.';
+      case EstadoAsignacion.correccion:
+        icono = Icons.edit_note;
+        color = AppColors.coralRed;
+        texto = 'Corrección solicitada. Esperando una nueva versión del apadrinado.'
+            '${s.ultimaSugerencia != null ? '\nSugerencias: ${s.ultimaSugerencia}' : ''}';
+      case EstadoAsignacion.vencido:
+        icono = Icons.timer_off_outlined;
+        color = AppColors.brownCocoa;
+        texto = 'La fecha límite pasó sin que el apadrinado enviara su entrega.';
+      case EstadoAsignacion.enviado:
+        icono = Icons.inbox_outlined;
+        color = AppColors.darkNavy;
+        texto = 'Entrega recibida.';
+      default:
+        icono = Icons.hourglass_empty;
+        color = AppColors.mustardGold;
+        texto = 'El apadrinado aún no ha enviado su entrega.';
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: color.withAlpha(22),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: color.withAlpha(90)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icono, color: color),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(child: Text(texto, style: TextStyle(color: color, fontWeight: FontWeight.w600))),
+        ],
+      ),
+    );
+  }
+
+  Widget _requisitos(AsignacionDetalle d) {
+    final a = d.actividad;
+    return _tarjeta(Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _titulo('Lo que se pidió'),
+        if (a.instrucciones != null && a.instrucciones!.isNotEmpty)
+          Text(a.instrucciones!, style: const TextStyle(fontSize: 13, color: AppColors.charcoal))
+        else if (a.descripcion != null && a.descripcion!.isNotEmpty)
+          Text(a.descripcion!, style: const TextStyle(fontSize: 13, color: AppColors.charcoal)),
+        if (a.requisitos.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.xs,
+            children: [for (final r in a.requisitos) Chip(label: Text(r), visualDensity: VisualDensity.compact)],
+          ),
+        ],
+      ],
+    ));
+  }
+
+  /// Contenido de una versión de la entrega.
+  Widget _entrega(Entrega e, {bool actual = false}) {
+    final contenido = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (actual) _titulo('Entrega · versión ${e.version}'),
+        Text(
+          'Enviada: ${AppDateUtils.formatDateTime(e.fechaEnvio)}'
+          '${e.revisorNombre != null && e.fechaRevision != null ? ' · Revisada por ${e.revisorNombre}' : ''}',
+          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+        ),
+        if (e.comentario != null && e.comentario!.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.grey.shade200),
+              color: AppColors.surfaceVariant,
+              borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: const Center(
+            child: Text('Comentario del apadrinado: ${e.comentario}',
+                style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic)),
+          ),
+        ],
+        if (e.fotografias.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          const Text('Fotografías', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [for (final f in e.fotografias) _Miniatura(documento: f)],
+          ),
+        ],
+        if (e.archivos.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          const Text('Documentos y evidencias', style: TextStyle(fontWeight: FontWeight.w600)),
+          for (final doc in e.archivos)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                doc.tipoDocumento == 'EVIDENCIA' ? Icons.fact_check_outlined : Icons.description_outlined,
+                color: AppColors.darkNavy,
+              ),
+              title: Text(doc.nombreOriginal, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text([
+                doc.tipoDocumento == 'EVIDENCIA' ? 'Evidencia' : 'Documento',
+                doc.tamanioTexto,
+                if (doc.descripcion != null && doc.descripcion!.isNotEmpty) doc.descripcion!,
+              ].join(' · ')),
+              trailing: const Icon(Icons.visibility_outlined),
+              onTap: () => DocumentoViewerModal.mostrar(context, doc),
+            ),
+        ],
+        if (e.cartas.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          const Text('Cartas', style: TextStyle(fontWeight: FontWeight.w600)),
+          for (final c in e.cartas) _carta(c),
+        ],
+        if (e.documentos.isEmpty && e.cartas.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: AppSpacing.sm),
+            child: Text('Esta versión no tiene archivos.', style: TextStyle(color: AppColors.textSecondary)),
+          ),
+        if (e.sugerencias.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          for (final s in e.sugerencias)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(top: AppSpacing.xs),
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: AppColors.coralRed.withAlpha(20),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
               child: Text(
-                'No hay eventos previos registrados en la bitácora.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                'Sugerencias (${AppDateUtils.formatDateTime(s.fecha)}): ${s.texto}',
+                style: const TextStyle(fontSize: 12, color: AppColors.coralRed),
               ),
             ),
-          )
-        else
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _historial.length,
-                separatorBuilder: (_, __) => const Divider(height: 16),
-                itemBuilder: (context, index) {
-                  final h = _historial[index];
-                  final color = AppTheme.getEstadoColor(h.estadoNuevo);
-                  final fechaStr = h.fechaHora != null
-                      ? h.fechaHora!.replaceFirst('T', ' ').substring(0, h.fechaHora!.length >= 16 ? 16 : h.fechaHora!.length)
-                      : '';
+        ],
+      ],
+    );
+    return actual ? _tarjeta(contenido) : contenido;
+  }
 
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _carta(Carta c) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.mustardGold.withAlpha(18),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.mustardGold.withAlpha(80)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(c.titulo, style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: AppSpacing.xs),
+          SelectableText(c.contenido, style: const TextStyle(fontSize: 14, height: 1.4)),
+        ],
+      ),
+    );
+  }
+
+  Widget _anteriores(List<Entrega> entregas) {
+    return _tarjeta(Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: EdgeInsets.zero,
+        title: Text('Versiones anteriores (${entregas.length})',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+        children: [
+          for (final e in entregas)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      CircleAvatar(
-                        radius: 14,
-                        backgroundColor: color.withAlpha(30),
-                        child: Icon(
-                          h.accion.contains('APROB')
-                              ? Icons.check
-                              : h.accion.contains('CORREC')
-                                  ? Icons.replay
-                                  : h.accion.contains('ENTREGA')
-                                      ? Icons.file_upload
-                                      : Icons.flag,
-                          size: 14,
-                          color: color,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  h.accion,
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color),
-                                ),
-                                Text(fechaStr, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                              ],
-                            ),
-                            if (h.modificadoPorNombre != null)
-                              Text(
-                                'Por: ${h.modificadoPorNombre} (${h.modificadoPorRol ?? "Usuario"})',
-                                style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                              ),
-                            if (h.observaciones != null && h.observaciones!.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 3.0),
-                                child: Text(
-                                  h.observaciones!,
-                                  style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
+                      Text('Versión ${e.version}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                      const SizedBox(width: AppSpacing.sm),
+                      StatusChip(estado: e.estado),
                     ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  _entrega(e),
+                  const Divider(),
+                ],
+              ),
+            ),
+        ],
+      ),
+    ));
+  }
+}
+
+/// Miniatura de una fotografía; al tocarla se abre el visor.
+class _Miniatura extends StatefulWidget {
+  final Documento documento;
+
+  const _Miniatura({required this.documento});
+
+  @override
+  State<_Miniatura> createState() => _MiniaturaState();
+}
+
+class _MiniaturaState extends State<_Miniatura> {
+  Uint8List? _bytes;
+  bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    DocumentoService().descargar(widget.documento).then((b) {
+      if (mounted) setState(() => _bytes = b);
+    }).catchError((_) {
+      if (mounted) setState(() => _error = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => DocumentoViewerModal.mostrar(context, widget.documento),
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: Container(
+        width: 110,
+        height: 110,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceVariant,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: AppColors.borderLight),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: _bytes != null
+            ? Image.memory(_bytes!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _icono())
+            : _error
+                ? _icono()
+                : const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))),
+      ),
+    );
+  }
+
+  Widget _icono() => const Center(child: Icon(Icons.broken_image_outlined, color: AppColors.textTertiary));
+}
+
+/// Historial de la asignación en una hoja inferior.
+class _HistorialSheet extends StatelessWidget {
+  final Future<List<HistorialActividad>> Function() cargar;
+
+  const _HistorialSheet({required this.cargar});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.7,
+      child: FutureBuilder<List<HistorialActividad>>(
+        future: cargar(),
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) return const LoadingState();
+          if (snap.hasError) {
+            return ErrorState(title: 'No se pudo cargar el historial', message: mensajeDeError(snap.error!));
+          }
+          final lista = snap.data ?? [];
+          if (lista.isEmpty) {
+            return const EmptyState(icon: Icons.history, title: 'Sin registros');
+          }
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.xl),
+                itemCount: lista.length + 1,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  if (i == 0) {
+                    return const Padding(
+                      padding: EdgeInsets.only(bottom: AppSpacing.sm),
+                      child: Text('Historial de la entrega',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                    );
+                  }
+                  final h = lista[i - 1];
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.circle, size: 10, color: AppColors.tealCyan),
+                    title: Text(h.accionTexto, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text([
+                      if (h.observaciones != null && h.observaciones!.isNotEmpty) h.observaciones!,
+                      '${h.modificadoPorNombre ?? 'Sistema'} · ${AppDateUtils.formatDateTime(h.fechaHora)}',
+                    ].join('\n')),
                   );
                 },
               ),
             ),
-          ),
-        const SizedBox(height: 20),
-      ],
+          );
+        },
+      ),
     );
   }
 }

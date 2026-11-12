@@ -106,6 +106,32 @@ public class UsuarioService {
         return convertirAResponseDTO(actualizado);
     }
 
+    /** Datos del perfil que el propio usuario puede actualizar. */
+    @Transactional
+    public UsuarioResponseDTO actualizarPerfil(Long id, com.example.backend.dto.PerfilRequestDTO dto) {
+        Usuario usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado con ID: " + id));
+        if (dto.getNombre() != null) {
+            if (dto.getNombre().isBlank()) {
+                throw new RuntimeException("El nombre no puede estar vacío.");
+            }
+            usuario.setNombre(dto.getNombre().trim());
+        }
+        if (dto.getApellido() != null) {
+            usuario.setApellido(dto.getApellido().isBlank() ? null : dto.getApellido().trim());
+        }
+        if (dto.getTelefono() != null) {
+            usuario.setTelefono(dto.getTelefono().isBlank() ? null : dto.getTelefono().trim());
+        }
+        if (dto.getDireccion() != null) {
+            usuario.setDireccion(dto.getDireccion().isBlank() ? null : dto.getDireccion().trim());
+        }
+        if (dto.getFechaNacimiento() != null) {
+            usuario.setFechaNacimiento(dto.getFechaNacimiento());
+        }
+        return convertirAResponseDTO(usuarioRepository.save(usuario));
+    }
+
     @Transactional
     public void eliminarUsuario(Long id) {
         if (!usuarioRepository.existsById(id)) {
@@ -125,7 +151,11 @@ public class UsuarioService {
         return UsuarioResponseDTO.builder()
                 .id(usuario.getId())
                 .nombre(usuario.getNombre())
+                .apellido(usuario.getApellido())
                 .correo(usuario.getCorreo())
+                .telefono(usuario.getTelefono())
+                .direccion(usuario.getDireccion())
+                .fechaNacimiento(usuario.getFechaNacimiento())
                 .rolId(rolId)
                 .rolNombre(rolNombre)
                 .build();

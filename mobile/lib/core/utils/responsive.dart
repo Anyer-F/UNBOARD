@@ -71,10 +71,12 @@ class ResponsiveContent extends StatelessWidget {
 ///   sola columna; desde [anchoDosColumnas] los muestra lado a lado.
 /// - Usa el ancho real disponible (LayoutBuilder), no el de la
 ///   pantalla, para funcionar igual dentro de shells y diálogos.
+/// - [onRefresh] es opcional: sin él no se muestra el gesto de
+///   deslizar para actualizar.
 class DashboardLayout extends StatelessWidget {
   final List<Widget> principal;
   final List<Widget> secundario;
-  final Future<void> Function() onRefresh;
+  final Future<void> Function()? onRefresh;
   final double maxWidth;
   final double anchoDosColumnas;
 
@@ -82,7 +84,7 @@ class DashboardLayout extends StatelessWidget {
     super.key,
     required this.principal,
     this.secundario = const [],
-    required this.onRefresh,
+    this.onRefresh,
     this.maxWidth = 1100,
     this.anchoDosColumnas = 840,
   });
@@ -100,29 +102,30 @@ class DashboardLayout extends StatelessWidget {
               children: hijos,
             );
 
-        return RefreshIndicator(
-          onRefresh: onRefresh,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 32),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: SizedBox(
-                width: ancho,
-                child: dosColumnas
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(flex: 5, child: columna(principal)),
-                          const SizedBox(width: 24),
-                          Expanded(flex: 4, child: columna(secundario)),
-                        ],
-                      )
-                    : columna([...principal, ...secundario]),
-              ),
+        final scroll = SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 32),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: SizedBox(
+              width: ancho,
+              child: dosColumnas
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(flex: 5, child: columna(principal)),
+                        const SizedBox(width: 24),
+                        Expanded(flex: 4, child: columna(secundario)),
+                      ],
+                    )
+                  : columna([...principal, ...secundario]),
             ),
           ),
         );
+
+        final refresh = onRefresh;
+        if (refresh == null) return scroll;
+        return RefreshIndicator(onRefresh: refresh, child: scroll);
       },
     );
   }

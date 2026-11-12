@@ -47,8 +47,15 @@ public class SolicitudIncorporacionController {
     }
 
     @GetMapping("/pendientes")
-    public ResponseEntity<List<SolicitudIncorporacionResponseDTO>> listarPendientes() {
-        return ResponseEntity.ok(solicitudService.listarPendientes());
+    public ResponseEntity<List<SolicitudIncorporacionResponseDTO>> listarPendientes(
+            @RequestParam(value = "comunidadId", required = false) Long comunidadId) {
+        return ResponseEntity.ok(solicitudService.listarPendientes(comunidadId));
+    }
+
+    /** Perfil del solicitante (coordinador) o estado de la solicitud propia. */
+    @GetMapping("/{id}")
+    public ResponseEntity<SolicitudIncorporacionResponseDTO> obtener(@PathVariable Long id) {
+        return ResponseEntity.ok(solicitudService.obtener(id));
     }
 
     @PatchMapping("/{id}/aprobar")

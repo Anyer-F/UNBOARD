@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../../shared/models/apadrinado.dart';
-import '../../services/auth_service.dart';
+
+import '../../core/constants/app_spacing.dart';
+import '../../core/network/api_client.dart';
+import '../../core/theme/app_colors.dart';
 import '../../services/expediente_service.dart';
-import '../../../core/theme/app_theme.dart';
+import '../../shared/models/apadrinado.dart';
+import '../../shared/widgets/cards.dart';
+import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/states.dart';
 import '../expediente/expediente_detalle_screen.dart';
 
+/// Apadrinados de las comunidades del Coordinador. Cada uno abre su
+/// expediente digital.
 class ApadrinadosListScreen extends StatefulWidget {
   final bool embedded;
 
@@ -16,294 +22,173 @@ class ApadrinadosListScreen extends StatefulWidget {
 }
 
 class _ApadrinadosListScreenState extends State<ApadrinadosListScreen> {
-  final _expedienteService = ExpedienteService();
-  final _searchController = TextEditingController();
+  final _servicio = ExpedienteService();
+  final _busqueda = TextEditingController();
 
   List<Apadrinado> _apadrinados = [];
-  List<Apadrinado> _apadrinadosFiltrados = [];
   bool _isLoading = true;
-  String _filtroComunidad = 'Todas';
+  String? _error;
+  String? _comunidad;
 
   @override
   void initState() {
     super.initState();
-    _cargarApadrinados();
+    _cargar();
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _busqueda.dispose();
     super.dispose();
   }
 
-  Future<void> _cargarApadrinados() async {
-    setState(() => _isLoading = true);
+  Future<void> _cargar() async {
+    setState(() {
+      _isLoading = _apadrinados.isEmpty;
+      _error = null;
+    });
     try {
-      final user = Provider.of<AuthService>(context, listen: false).currentUser;
-      if (user?.coordinadorId != null) {
-        final apadrinados = await _expedienteService.listarApadrinadosPorCoordinador(user!.coordinadorId!);
-        if (!mounted) return;
+      final lista = await _servicio.apadrinados();
+      lista.sort((a, b) => a.nombreCompleto.toLowerCase().compareTo(b.nombreCompleto.toLowerCase()));
+      if (mounted) {
         setState(() {
-          _apadrinados = apadrinados;
-          _apadrinadosFiltrados = apadrinados;
+          _apadrinados = lista;
           _isLoading = false;
         });
       }
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al cargar apadrinados: $e'),
-            backgroundColor: AppColors.coralRed,
-          ),
-        );
+        setState(() {
+          _isLoading = false;
+          _error = mensajeDeError(e);
+        });
       }
     }
   }
 
-  void _filtrarApadrinados(String query) {
-    setState(() {
-      _apadrinadosFiltrados = _apadrinados.where((a) {
-        final nombre = a.nombre?.toLowerCase() ?? '';
-        final comunidad = a.comunidadNombre?.toLowerCase() ?? '';
-        final correo = a.correo?.toLowerCase() ?? '';
-        final matchQuery = nombre.contains(query.toLowerCase()) ||
-            comunidad.contains(query.toLowerCase()) ||
-            correo.contains(query.toLowerCase());
-        final matchComunidad = _filtroComunidad == 'Todas' ||
-            a.comunidadNombre == _filtroComunidad;
-        return matchQuery && matchComunidad;
-      }).toList();
-    });
+  List<String> get _comunidades =>
+      _apadrinados.map((a) => a.comunidadNombre).whereType<String>().toSet().toList()..sort();
+
+  List<Apadrinado> get _filtrados {
+    final q = _busqueda.text.trim().toLowerCase();
+    return _apadrinados.where((a) {
+      final coincide = q.isEmpty ||
+          a.nombreCompleto.toLowerCase().contains(q) ||
+          (a.correo ?? '').toLowerCase().contains(q) ||
+          (a.comunidadNombre ?? '').toLowerCase().contains(q);
+      return coincide && (_comunidad == null || a.comunidadNombre == _comunidad);
+    }).toList();
+  }
+
+  Future<void> _abrir(Apadrinado a) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ExpedienteDetalleScreen(apadrinadoId: a.id)),
+    );
+  }
+
+  Widget _contenido() {
+    if (_isLoading) return const LoadingState(message: 'Cargando apadrinados...');
+    if (_error != null && _apadrinados.isEmpty) {
+      return ErrorState(title: 'No se pudieron cargar los apadrinados', message: _error, onRetry: _cargar);
+    }
+    final lista = _filtrados;
+    return RefreshIndicator(
+      onRefresh: _cargar,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final horizontal = constraints.maxWidth >= 600 ? 24.0 : 16.0;
+          final ancho = (constraints.maxWidth - horizontal * 2).clamp(0.0, 1100.0);
+          final columnas = ancho >= 900 ? 3 : (ancho >= 560 ? 2 : 1);
+          final anchoTarjeta = ((ancho - AppSpacing.md * (columnas - 1)) / columnas).floorToDouble();
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 32),
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                width: ancho,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      '${_apadrinados.length} apadrinados en tus comunidades',
+                      style: const TextStyle(color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextField(
+                      controller: _busqueda,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Buscar por nombre, correo o comunidad...',
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        suffixIcon: _busqueda.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () => setState(_busqueda.clear),
+                              )
+                            : null,
+                      ),
+                    ),
+                    if (_comunidades.length > 1) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.sm,
+                        children: [
+                          FilterChipWidget(
+                            label: 'Todas',
+                            selected: _comunidad == null,
+                            onSelected: () => setState(() => _comunidad = null),
+                          ),
+                          for (final c in _comunidades)
+                            FilterChipWidget(
+                              label: c,
+                              selected: _comunidad == c,
+                              onSelected: () => setState(() => _comunidad = c),
+                            ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.lg),
+                    if (lista.isEmpty)
+                      EmptyState(
+                        icon: Icons.people_outline,
+                        title: _apadrinados.isEmpty ? 'Sin apadrinados' : 'Sin resultados',
+                        description: _apadrinados.isEmpty
+                            ? 'Se incorporan a tus comunidades con el código de acceso'
+                            : 'Prueba con otra búsqueda',
+                      )
+                    else
+                      Wrap(
+                        spacing: AppSpacing.md,
+                        children: [
+                          for (final a in lista)
+                            SizedBox(
+                              width: anchoTarjeta,
+                              child: PersonCard(
+                                nombre: a.nombreCompleto.isNotEmpty ? a.nombreCompleto : 'Apadrinado',
+                                subtitle: a.comunidadNombre ?? 'Sin comunidad',
+                                detail: a.correo,
+                                trailing: const Icon(Icons.folder_shared_outlined, color: AppColors.tealCyan),
+                                onTap: () => _abrir(a),
+                              ),
+                            ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final content = Column(
-      children: [
-        // Banner
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(
-            color: AppColors.darkNavy,
-            borderRadius: BorderRadius.only(
-              bottomLeft: Radius.circular(20),
-              bottomRight: Radius.circular(20),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Total: ${_apadrinados.length} apadrinados',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Gestiona la información de tus apadrinados',
-                style: TextStyle(
-                  color: Colors.white.withAlpha(200),
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        // Buscador
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: TextField(
-            controller: _searchController,
-            onChanged: _filtrarApadrinados,
-            decoration: InputDecoration(
-              hintText: 'Buscar por nombre, comunidad o correo...',
-              prefixIcon: const Icon(Icons.search, size: 20),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () {
-                        _searchController.clear();
-                        _filtrarApadrinados('');
-                      },
-                    )
-                  : null,
-              contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
-
-        // Filtro por comunidad
-        SizedBox(
-          height: 40,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            children: [
-              _buildFiltroChip('Todas'),
-              ..._apadrinados
-                  .map((a) => a.comunidadNombre)
-                  .where((c) => c != null)
-                  .toSet()
-                  .map((c) => _buildFiltroChip(c!)),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 8),
-
-        // Lista de apadrinados
-        Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _apadrinadosFiltrados.isEmpty
-                  ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _cargarApadrinados,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        itemCount: _apadrinadosFiltrados.length,
-                        itemBuilder: (context, index) {
-                          final apadrinado = _apadrinadosFiltrados[index];
-                          return _buildApadrinadoCard(apadrinado);
-                        },
-                      ),
-                    ),
-        ),
-      ],
-    );
-
-    if (widget.embedded) {
-      return content;
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mis Apadrinados'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _cargarApadrinados,
-          ),
-        ],
-      ),
-      body: content,
-    );
-  }
-
-  Widget _buildFiltroChip(String comunidad) {
-    final isSelected = _filtroComunidad == comunidad;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8.0),
-      child: ChoiceChip(
-        label: Text(comunidad),
-        selected: isSelected,
-        selectedColor: AppColors.darkNavy,
-        labelStyle: TextStyle(
-          color: isSelected ? Colors.white : AppColors.charcoal,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-        ),
-        onSelected: (_) {
-          setState(() => _filtroComunidad = comunidad);
-          _filtrarApadrinados(_searchController.text);
-        },
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.people_outline, size: 60, color: Colors.grey.shade400),
-            const SizedBox(height: 12),
-            const Text(
-              'No se encontraron apadrinados',
-              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildApadrinadoCard(Apadrinado apadrinado) {
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ExpedienteDetalleScreen(apadrinadoId: apadrinado.id),
-            ),
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(14.0),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundColor: AppColors.darkNavy.withAlpha(20),
-                child: const Icon(Icons.person, color: AppColors.darkNavy, size: 28),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      apadrinado.nombre ?? 'Apadrinado',
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.darkNavy,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      'Comunidad: ${apadrinado.comunidadNombre ?? "Sin asignar"}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    Text(
-                      apadrinado.correo ?? '',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(
-                Icons.arrow_forward_ios,
-                size: 14,
-                color: AppColors.textSecondary,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    if (widget.embedded) return _contenido();
+    return Scaffold(appBar: AppBar(title: const Text('Mis apadrinados')), body: _contenido());
   }
 }

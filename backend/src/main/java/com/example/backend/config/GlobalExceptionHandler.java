@@ -58,6 +58,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
     }
 
+    @ExceptionHandler(ConfirmacionRequeridaException.class)
+    public ResponseEntity<Map<String, Object>> handleConfirmacionRequerida(
+            ConfirmacionRequeridaException exc, HttpServletRequest request) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", HttpStatus.CONFLICT.value());
+        body.put("error", "Conflict");
+        body.put("message", exc.getMessage());
+        body.put("requiereConfirmacion", true);
+        body.put("path", request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
     @ExceptionHandler(org.springframework.web.multipart.support.MissingServletRequestPartException.class)
     public ResponseEntity<Map<String, Object>> handleMissingPart(
             org.springframework.web.multipart.support.MissingServletRequestPartException exc,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 
 export 'app_colors.dart';
 
@@ -134,7 +135,7 @@ class AppTheme {
       ),
 
       // Tarjetas
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.cardBg,
         elevation: 0,
         shadowColor: AppColors.shadowMedium,
@@ -298,7 +299,7 @@ class AppTheme {
       ),
 
       // Dialogs elegantes
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
@@ -409,7 +410,7 @@ class AppTheme {
       ),
 
       // TabBar elegante
-      tabBarTheme: TabBarTheme(
+      tabBarTheme: TabBarThemeData(
         labelColor: AppColors.darkNavy,
         unselectedLabelColor: AppColors.textSecondary,
         labelStyle: const TextStyle(
@@ -470,40 +471,61 @@ class AppTheme {
   static Color getEstadoColor(String? estado) {
     switch (estado?.toUpperCase()) {
       case 'PENDIENTE':
+      case 'BORRADOR':
         return AppColors.mustardGold;
+      case 'EN_PROGRESO':
       case 'EN_PROCESO':
         return AppColors.tealCyan;
+      case 'ENVIADO':
+      case 'ENVIADA':
       case 'ENTREGADA':
       case 'EN_REVISION':
         return AppColors.darkNavy;
+      case 'APROBADO':
       case 'APROBADA':
         return AppColors.sageGreen;
       case 'CORRECCION_SOLICITADA':
         return AppColors.coralRed;
+      case 'VENCIDO':
       case 'VENCIDA':
         return AppColors.brownCocoa;
+      case 'PUBLICADO':
+        return AppColors.tealCyan;
+      case 'VISTO':
+        return AppColors.sageGreen;
       default:
         return Colors.grey;
     }
   }
 
-  /// Texto amigable para el estado.
+  /// Texto amigable para el estado (de la asignación o de la entrega).
   static String getEstadoTexto(String? estado) {
     switch (estado?.toUpperCase()) {
       case 'PENDIENTE':
         return 'Pendiente';
+      case 'EN_PROGRESO':
       case 'EN_PROCESO':
         return 'En progreso';
+      case 'ENVIADO':
+      case 'ENVIADA':
       case 'ENTREGADA':
-        return 'Enviado · En revisión';
+        return 'Enviado';
       case 'EN_REVISION':
         return 'En revisión';
+      case 'APROBADO':
       case 'APROBADA':
         return 'Aprobado';
       case 'CORRECCION_SOLICITADA':
         return 'Corrección solicitada';
+      case 'VENCIDO':
       case 'VENCIDA':
         return 'Vencido';
+      case 'PUBLICADO':
+        return 'Publicado';
+      case 'VISTO':
+        return 'Visto';
+      case 'BORRADOR':
+        return 'En preparación';
       default:
         return estado ?? 'Desconocido';
     }
